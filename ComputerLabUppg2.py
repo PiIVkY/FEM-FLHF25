@@ -60,8 +60,8 @@ def generate_mesh(show_geometry: bool):
         plt.show()
     # Boundary Conditions
     bc, bc_value = np.array([], 'i'), np.array([], 'f')
-    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_T_1000, 1000, 1)
-    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_T_100, 100, 1)
+    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_T_1000, 1000, 0)
+    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_T_100, 100, 0)
     # return
     return (coord, edof, dofs, bdofs, bc, bc_value, element_markers)
 
