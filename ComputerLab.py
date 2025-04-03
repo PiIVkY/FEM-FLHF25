@@ -68,16 +68,9 @@ def generate_mesh(show_geometry: bool):
     return (coord, edof, dofs, bdofs, bc, bc_value, element_markers)
 
 if __name__=="__main__":
-    coord, edof, dofs, bdofs, bc, bc_value, element_marker = generate_mesh(show_geometry=True)
-    print(coord)
-    print(edof)
-    print(dofs)
-    print(bdofs)
-    print(bc)
-    print(bc_value)
-    print(element_marker)
-
+    coord, edof, dofs, bdofs, bc, bc_value, element_marker = generate_mesh(show_geometry=False)
     Ex, Ey = cfc.coordxtr(edof, coord, dofs)
+
     ep = np.array([1])
     D = np.array([[1,0],[0,1]])
     K = np.zeros((dofs[-1][0], dofs[-1][0]))
@@ -94,14 +87,14 @@ if __name__=="__main__":
     for i in range(500):
         Es[i], Et = cfc.flw2ts(Ex[i], Ey[i], D, Ed[i])
 
-    cfu.disp_h2("Ex")
-    cfu.disp_array(Ex, headers=["x0", "x1", "x2", "x3"])
-    cfu.disp_h2("Ey")
-    cfu.disp_array(Ey, headers=["x0", "x1", "x2", "x3"])
-    cfu.disp_h2("a")
-    cfu.disp_array(a)
-    cfu.disp_h2("Ed")
-    cfu.disp_array(Ed, headers=["ed0", "ed1", "ed2", "ed3"])
+    #cfu.disp_h2("Ex")
+    #cfu.disp_array(Ex, headers=["x0", "x1", "x2", "x3"])
+    #cfu.disp_h2("Ey")
+    #cfu.disp_array(Ey, headers=["x0", "x1", "x2", "x3"])
+    #cfu.disp_h2("a")
+    #cfu.disp_array(a)
+    #cfu.disp_h2("Ed")
+    #cfu.disp_array(Ed, headers=["ed0", "ed1", "ed2", "ed3"])
 
     cfv.eldraw2(Ex, Ey, [1, 2, 1], range(1, Ex.shape[0] + 1))
     cfv.eliso2_mpl(Ex, Ey, Ed)
