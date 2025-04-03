@@ -57,6 +57,8 @@ def generate_mesh(show_geometry: bool):
             title="Geometry: Computer Lab Exercise 2"
         )
         plt.show()
+        cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=mesh.dofs_per_node, el_type=mesh.el_type, filled=True)
+        plt.show()
     # Boundary Conditions
     bc, bc_value = np.array([], 'i'), np.array([], 'f')
     bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_T_1000, 1000, 1)
@@ -65,4 +67,4 @@ def generate_mesh(show_geometry: bool):
     return (coord, edof, dofs, bdofs, bc, bc_value, element_markers)
 
 if __name__=="__main__":
-    generate_mesh(show_geometry=True)
+    coord, edof, dofs, bdofs, bc, bc_value, element_marker = generate_mesh(show_geometry=True)
