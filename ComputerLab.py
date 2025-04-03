@@ -1,6 +1,7 @@
 import calfem.geometry as cfg
 import calfem.mesh as cfm
 
+import calfem.core as cfc
 import calfem.utils as cfu
 
 import matplotlib as mpl
@@ -68,3 +69,19 @@ def generate_mesh(show_geometry: bool):
 
 if __name__=="__main__":
     coord, edof, dofs, bdofs, bc, bc_value, element_marker = generate_mesh(show_geometry=True)
+    print(coord)
+    print(edof)
+    print(dofs)
+    print(bdofs)
+    print(bc)
+    print(bc_value)
+    print(element_marker)
+
+    Ex, Ey = cfc.coordxtr(edof, coord, dofs)
+    ep = np.array([1])
+    D = np.array([[1,0],[0,1]])
+    K = np.zeros((dofs[-1][0], dofs[-1][0]))
+
+    for i in range(len(edof)):
+        Ke = cfc.flw2te(Ex[i], Ey[i], ep, D)
+        K = cfc.assem(edof[i], K, Ke)
