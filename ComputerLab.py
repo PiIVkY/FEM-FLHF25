@@ -81,7 +81,15 @@ if __name__=="__main__":
     ep = np.array([1])
     D = np.array([[1,0],[0,1]])
     K = np.zeros((dofs[-1][0], dofs[-1][0]))
+    F = np.zeros((dofs[-1][0], 1))
 
     for i in range(len(edof)):
         Ke = cfc.flw2te(Ex[i], Ey[i], ep, D)
         K = cfc.assem(edof[i], K, Ke)
+
+    a, r = cfc.solveq(K, F, bc, bc_value)
+
+    Ed = cfc.extractEldisp(edof, a)
+    Es = np.zeros((dofs[-1][0], 2))
+    for i in range(len(edof)):
+        Es[i], Et = cfc.flw2ts(Ex[i], Ey[i], D, Ed[i])
