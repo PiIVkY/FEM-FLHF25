@@ -66,6 +66,4 @@ def generate_mesh(show_geometry: bool):
 
 if __name__=="__main__":
     generate_mesh(show_geometry=True)
-
-
-print(hej)
+    kul ändring :)
