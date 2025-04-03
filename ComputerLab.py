@@ -70,7 +70,13 @@ def generate_mesh(show_geometry: bool):
 if __name__=="__main__":
     coord, edof, dofs, bdofs, bc, bc_value, element_marker = generate_mesh(show_geometry=False)
     Ex, Ey = cfc.coordxtr(edof, coord, dofs)
-    
+
+    print(bc)
+    print(bc_value)
+    for i in bc:
+        print(i)
+        print(coord[i])
+
     ep = np.array([1])
     D = np.array([[1,0],[0,1]])
     K = np.zeros((dofs[-1][0], dofs[-1][0]))
