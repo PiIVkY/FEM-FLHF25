@@ -36,14 +36,11 @@ E = 5
 A = 10
 
 for i in range(num_elements):
-    print(ex[i, :])
-    print([E, A])
     kei = cfc.bar1e(ex[i, :], [E, A])
     cfc.assem(edof[i, :], K, kei)
 
 F = np.zeros((num_elements+1, 1))
-F[-2] = 15
-print(ex)
+F[num_elements] = -15
 bc_dof = np.array([1])
 bc_val = np.array([0])
 

@@ -85,10 +85,10 @@ if __name__=="__main__":
 
     a, r = cfc.solveq(K, F, bc, bc_value)
 
-    Ed = cfc.extractEldisp(edof, a)
-    Es = np.zeros((dofs[-1][0], 2))
-    for i in range(500):
-        Es[i], Et = cfc.flw2ts(Ex[i], Ey[i], D, Ed[i])
+    #Ed = cfc.extractEldisp(edof, a)
+    #Es = np.zeros((dofs[-1][0], 2))
+    #for i in range(500):
+    #    Es[i], Et = cfc.flw2ts(Ex[i], Ey[i], D, Ed[i])
 
 
 
