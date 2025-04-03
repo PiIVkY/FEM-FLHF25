@@ -91,5 +91,18 @@ if __name__=="__main__":
 
     Ed = cfc.extractEldisp(edof, a)
     Es = np.zeros((dofs[-1][0], 2))
-    for i in range(len(edof)):
+    for i in range(500):
         Es[i], Et = cfc.flw2ts(Ex[i], Ey[i], D, Ed[i])
+
+    cfu.disp_h2("Ex")
+    cfu.disp_array(Ex, headers=["x0", "x1", "x2", "x3"])
+    cfu.disp_h2("Ey")
+    cfu.disp_array(Ey, headers=["x0", "x1", "x2", "x3"])
+    cfu.disp_h2("a")
+    cfu.disp_array(a)
+    cfu.disp_h2("Ed")
+    cfu.disp_array(Ed, headers=["ed0", "ed1", "ed2", "ed3"])
+
+    cfv.eldraw2(Ex, Ey, [1, 2, 1], range(1, Ex.shape[0] + 1))
+    cfv.eliso2_mpl(Ex, Ey, Ed)
+    cfv.show_and_wait()
