@@ -53,12 +53,10 @@ def generate_mesh(show_geometry: bool):
     if show_geometry:
         fig, ax = plt.subplots()
         cfv.draw_geometry(
-            g,
-            label_curves=True,
-            title="Geometry: Computer Lab Exercise 2"
+        g,
+        label_curves=True,
+        title="Geometry: Computer Lab Exercise 2"
         )
-        plt.show()
-        cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=mesh.dofs_per_node, el_type=mesh.el_type, filled=True)
         plt.show()
     # Boundary Conditions
     bc, bc_value = np.array([], 'i'), np.array([], 'f')
