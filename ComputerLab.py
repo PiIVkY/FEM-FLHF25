@@ -71,11 +71,10 @@ if __name__=="__main__":
     coord, edof, dofs, bdofs, bc, bc_value, element_marker = generate_mesh(show_geometry=False)
     Ex, Ey = cfc.coordxtr(edof, coord, dofs)
 
+    print(bdofs)
     print(bc)
     print(bc_value)
-    for i in bc:
-        print(i)
-        print(coord[i])
+    print(edof)
 
     ep = np.array([1])
     D = np.array([[1,0],[0,1]])
@@ -93,15 +92,20 @@ if __name__=="__main__":
     for i in range(500):
         Es[i], Et = cfc.flw2ts(Ex[i], Ey[i], D, Ed[i])
 
-    #cfu.disp_h2("Ex")
-    #cfu.disp_array(Ex, headers=["x0", "x1", "x2", "x3"])
-    #cfu.disp_h2("Ey")
-    #cfu.disp_array(Ey, headers=["x0", "x1", "x2", "x3"])
-    #cfu.disp_h2("a")
-    #cfu.disp_array(a)
-    #cfu.disp_h2("Ed")
-    #cfu.disp_array(Ed, headers=["ed0", "ed1", "ed2", "ed3"])
 
-    cfv.eldraw2(Ex, Ey, [1, 2, 1], range(1, Ex.shape[0] + 1))
-    cfv.eliso2_mpl(Ex, Ey, Ed)
-    cfv.show_and_wait()
+
+    #generate_mesh(show_geometry=True)
+
+    UNIT = 1 / 2.54
+    wcm, hcm = 20, 10
+    fig, ax = plt.subplots(figsize=(wcm * UNIT, hcm * UNIT))
+
+    v = np.asarray(a)
+    x, y = coord.T
+    edof_tri = cfv.topo_to_tri(edof)
+    tri = plt.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
+
+    fig.colorbar(tri, ax=ax, label='Temperature [K]')
+    plt.title("Temperature distribution at equilibrium")
+
+    plt.show()
