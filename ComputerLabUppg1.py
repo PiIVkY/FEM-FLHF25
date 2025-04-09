@@ -24,19 +24,20 @@ ex = np.zeros((num_elements, 2))
 for i in range(num_elements):
     ex[i] = [x_0 + (x_1-x_0)*i/(num_elements), x_0 + (x_1-x_0)*(i+1)/(num_elements)]
 
-edof = np.zeros((num_elements, 4))
+edof = np.zeros((num_elements,2), dtype=int)
 
 for i in range(num_elements):
-    edof[i] = [2*i, 2*i+1, 2*i+2, 2*i+3]
-print(edof)
+    edof[i] = [i+1, i+2]
+
 
 K = np.zeros((num_elements+1, num_elements+1))
 kei = np.zeros((4,4))
 
-E = 1
-A = np.array ([1e-4, 1e-4, 1e-4])
+E = 5
+A = 10
 
 for i in range(num_elements):
+    kei = cfc.bar1e(ex[i, :], [E, A])
     cfc.assem(edof[i, :], K, kei)
 
 Fb = np.zeros((num_elements+1, 1))
@@ -54,7 +55,7 @@ Fl[-1] = Q*(x_1-x_0)/(2*num_elements)
 F = Fb + Fl
 
 #print(K)
-#print(F)
+print(F)
 print(ex)
 a, r = cfc.solveq(K, F, bc_dof , bc_val)
 
