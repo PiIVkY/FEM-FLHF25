@@ -8,6 +8,8 @@ import calfem.utils as cfu
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+import matplotlib.axes as axes
 
 mpl.use('TkAgg')
 
@@ -16,7 +18,7 @@ import calfem.vis_mpl as cfv
 import numpy as np
 
 # Mesh data
-el_sizef, el_type= 0.03, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
+el_sizef, el_type= 0.08, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
 thickness = 1 # meter
 mesh_dir = "./"
 
@@ -236,6 +238,16 @@ def plotTherm(a) :
 
     plt.show()
 
+def MakeCapacityMatrix(dofs, element_markers) -> np.array :
+    C = np.zeros((len(dofs), len(dofs)))
+    for e in dofs:
+        for i in e :
+            if element_markers[i] == MARKER_CuCr :
+                C[i-1, i-1] = CCu
+            if element_markers[i] == MARKER_TiAlloy :
+                C[i-1, i-1] = CTi
+    return C
+
 
 def MakeMechMesh(geom) :
     mesh = cfm.GmshMeshGenerator(geom, mesh_dir=mesh_dir)
@@ -298,14 +310,13 @@ if __name__=="__main__":
     F = np.zeros([np.size(dofs), 1])
 
     F, bc, bc_value, KModifier = MakeThermBC(F, bdofs)
-
     K = K+KModifier # Update K with changes from convection BC
 
     # Solve thermal problem
     a, r = cfc.solveq(K, F, bc, bc_value)
 
-    if True :   # Swich to turn of plotting for thermal problem
-        fig, ax = plt.subplots()
+    # Plot solution to steady state problem
+    if False :   # Swich to turn of plotting for thermal problem
         cfv.draw_geometry(
             NozzleGeom(),
             label_curves=True,
@@ -316,6 +327,55 @@ if __name__=="__main__":
         plt.show()
 
         plotTherm(a)
+
+    C = MakeCapacityMatrix(dofs, element_markers)
+
+    a0 = np.ones((len(dofs), 1)) * T0
+
+    dt, tottime, alpha = 10, 3600, 1/2
+
+    smoothness = 0.5
+    times = [100*i*smoothness for i in range(int(tottime/(100*smoothness)))]
+
+    modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
+
+    print(modhist["a"])
+
+
+
+    # Plot solution to dynamic thermal problem
+    if True:
+        UNIT = 1 / 2.54
+        wcm, hcm = 35, 10
+        fig, (ax, cbax) = plt.subplots( 1, 2, width_ratios=[10, 1], figsize=(wcm * UNIT, hcm * UNIT))
+
+        x, y = coord.T
+        fmt = '%1.2f'
+        v = np.asarray(modhist["a"].transpose()[0])
+        edof_tri = cfv.topo_to_tri(edof)
+        im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
+        cb = fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
+        i0 = 0
+        tx = ax.text(3, 0.1, str(i0))
+
+        def animate(i):
+            v = np.asarray(modhist["a"].transpose()[i])
+            vmax = np.max(v)
+            vmin = np.min(v)
+            im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
+            fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
+            tx.set_text(i)
+
+
+        plt.title("Temperature distribution at equilibrium")
+
+
+        ani = animation.FuncAnimation(fig=fig, func=animate, frames = len(times), interval=(smoothness*200))
+        plt.show()
+
+
+
+
 
 
     # Solve stationary mechanical problem       Nevermind, don't really care about that right now
