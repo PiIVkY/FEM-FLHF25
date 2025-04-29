@@ -52,7 +52,8 @@ ChamberCooling = 1000 # W/m^2
 
 MARKER_QN_0 = 5
 MARKER_Material_Transition = 6 # vet inte om något särskillt behöver göras, men verkar inte så
-
+MARKER_TCONST = 7
+TCONST = 100 # deg C
 
 
 def nodesToEdges ( nodes : dict , enod : np . array ) -> dict :
@@ -142,6 +143,60 @@ def NozzleGeom() :
     g.surface([10, 2, 3, 4, 5, 6, 11], ID=1, marker=MARKER_CuCr)
     return g
 
+def MakeThermTestMesh() :
+    coord = np.zeros((9, 2))
+    coord[0] = [-0.005, -0.005]    # Bottom left
+    coord[1] = [0, -0.005]         # Bottom middle
+    coord[2] = [0.005, -0.005]     # Bottom right
+    coord[3] = [-0.005, 0]         # Middle left
+    coord[4] = [0, 0]              # Center
+    coord[5] = [0.005, 0]          # Middle right
+    coord[6] = [-0.005, 0.005]     # Top left
+    coord[7] = [0, 0.005]          # Top middle
+    coord[8] = [0.005, 0.005]      # Top right
+
+    dofs = np.zeros((9, 1), dtype=int)
+    dofs[0] = [1]
+    dofs[1] = [2]
+    dofs[2] = [3]
+    dofs[3] = [4]
+    dofs[4] = [5]
+    dofs[5] = [6]
+    dofs[6] = [7]
+    dofs[7] = [8]
+    dofs[8] = [9]
+
+    edof = np.zeros((8, 3), dtype=int)
+    edof[0] = [1, 2, 5]
+    edof[1] = [2, 3, 5]
+    edof[2] = [1, 4, 5]
+    edof[3] = [3, 6, 5]
+    edof[4] = [4, 7, 5]
+    edof[5] = [7, 8, 5]
+    edof[6] = [8, 9, 5]
+    edof[7] = [6, 9, 5]
+
+    #element_markers = np.zeros((8), dtype=int)
+    element_markers = [0] * 8
+    element_markers[0] = MARKER_CuCr
+    element_markers[1] = MARKER_CuCr
+    element_markers[2] = MARKER_CuCr
+    element_markers[3] = MARKER_CuCr
+    element_markers[4] = MARKER_CuCr
+    element_markers[5] = MARKER_CuCr
+    element_markers[6] = MARKER_CuCr
+    element_markers[7] = MARKER_CuCr
+
+
+    bdofs = {
+        MARKER_TCONST: [3, 6, 9],
+        MARKER_BellOutside: [8, 9],
+        MARKER_Material_Transition: [1, 2, 3, 4, 7, 8]
+    }
+
+
+    return (coord, edof, dofs, bdofs, element_markers)
+
 def MakeThermMesh(geom) :
     mesh = cfm.GmshMeshGenerator(geom, mesh_dir=mesh_dir)
 
@@ -164,7 +219,7 @@ def AssembleThermStiffness(coord, edof, dofs, bdofs, element_markers) :
     K = np.zeros([n_dofs, n_dofs])
 
     for i in range(len(edof)):
-        if element_markers[i] == 1:
+        if element_markers[i] == MARKER_TiAlloy:
             Ke = cfc.flw2te(ex[i], ey[i], epTi, DTi)
         else:
             Ke = cfc.flw2te(ex[i], ey[i], epCu, DCu)
@@ -176,35 +231,33 @@ def MakeThermBC(F, bdofs) :
     edges = nodesToEdges(bdofs, edof)
 
     bc, bc_value = np.array([], 'i'), np.array([], 'f')
-    #bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_QN_0, 0, 0)
-    #bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_BellOutside, 0, 0)
-    #bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_Inside, 1000, 0)
-    #bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_ChamberOutside, 0, 0)
+    if test:
+        bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_TCONST, TCONST, 0)
 
-    # Add heating BC to inside of rocket
-    for e in edges[MARKER_Inside] :
-        #print(e)
-        x1, y1 = coord[e[0]-1]
-        #print("x1, y1: ", x1, y1)
-        x2, y2 = coord[e[1]-1]
-        #print("x2, y2: ", x2, y2)
-        dx = x1-x2
-        dy = y1-y2
-        l = np.sqrt(dx*dx + dy*dy)
-        #print("l: ", l)
-        F[e[0]-1] += l*thickness*ChamberHeating/2
-        F[e[1]-1] += l*thickness*ChamberHeating/2
+    if not test :
+        # Add heating BC to inside of rocket
+        for e in edges[MARKER_Inside] :
+            #print(e)
+            x1, y1 = coord[e[0]-1]
+            #print("x1, y1: ", x1, y1)
+            x2, y2 = coord[e[1]-1]
+            #print("x2, y2: ", x2, y2)
+            dx = x1-x2
+            dy = y1-y2
+            l = np.sqrt(dx*dx + dy*dy)
+            #print("l: ", l)
+            F[e[0]-1] += l*thickness*ChamberHeating/2
+            F[e[1]-1] += l*thickness*ChamberHeating/2
 
-    # Add cooling BC to outside of nozzle
-    for e in edges[MARKER_ChamberOutside] :
-        x1, y1 = coord[e[0]-1]
-        x2, y2 = coord[e[1]-1]
-        dx = x1-x2
-        dy = y1-y2
-        l = np.sqrt(dx*dx + dy*dy)
-        F[e[0]-1] -= l*thickness*ChamberCooling/2
-        F[e[1]-1] -= l*thickness*ChamberCooling/2
-
+        # Add cooling BC to outside of nozzle
+        for e in edges[MARKER_ChamberOutside] :
+            x1, y1 = coord[e[0]-1]
+            x2, y2 = coord[e[1]-1]
+            dx = x1-x2
+            dy = y1-y2
+            l = np.sqrt(dx*dx + dy*dy)
+            F[e[0]-1] -= l*thickness*ChamberCooling/2
+            F[e[1]-1] -= l*thickness*ChamberCooling/2
 
     # Add convecton BC
     KModifier = np.zeros([len(F), len(F)])
@@ -226,6 +279,8 @@ def MakeThermBC(F, bdofs) :
 def plotTherm(a) :
     UNIT = 1 / 2.54
     wcm, hcm = 35, 10
+    if test:
+        wcm, hcm = 20, 15
     fig, ax = plt.subplots(figsize=(wcm * UNIT, hcm * UNIT))
 
     v = np.asarray(a)
@@ -301,9 +356,22 @@ def MakeMechBC(F, bdofs) :
 
 
 if __name__=="__main__":
+    test = False
 
     # Solve stationary thermal problem
-    coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
+    if test:    # Försöker få testcaset att funka men lyckas inte. Crashar inte men blir fel än så länge, och när jag försöker tweaka blir K-matrisen singulär
+        coord, edof, dofs, bdofs, element_markers = MakeThermTestMesh()
+        AlphaConvection = 1000
+        Tinfty = 20
+        thickness = 0.010 # m
+        KCu = 10
+        RhoCu = 1
+
+        ECu = 200
+        VCu = 0.3
+
+    else:
+        coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
 
     K = AssembleThermStiffness(coord, edof, dofs, bdofs, element_markers)
 
@@ -312,35 +380,47 @@ if __name__=="__main__":
     F, bc, bc_value, KModifier = MakeThermBC(F, bdofs)
     K = K+KModifier # Update K with changes from convection BC
 
-    # Solve thermal problem
+    # Solve stationary thermal problem
     a, r = cfc.solveq(K, F, bc, bc_value)
 
     # Plot solution to steady state problem
-    if False :   # Swich to turn of plotting for thermal problem
-        cfv.draw_geometry(
-            NozzleGeom(),
-            label_curves=True,
-            title="Geometry: Computer Lab Exercise 2"
-        )
+    if True :   # Swich to turn of plotting for thermal problem
+        if not test :
+            cfv.draw_geometry(
+                NozzleGeom(),
+                label_curves=True,
+                title="Geometry: Computer Lab Exercise 2"
+            )
+        else :
+            cfv.draw_geometry(
+                TestGeom(),
+                label_curves=True,
+                title="Geometry: Computer Lab Exercise 2"
+            )
         plt.show()
         cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=1, el_type=2, filled=True)
         plt.show()
 
         plotTherm(a)
 
+        if test:
+            print("Results:")
+            print(a)
+
+
+    # Solve dynamic thermal problem
     C = MakeCapacityMatrix(dofs, element_markers)
 
     a0 = np.ones((len(dofs), 1)) * T0
 
-    dt, tottime, alpha = 10, 3600, 1/2
+    dt, tottime, alpha = 10, 3600, 1
 
     smoothness = 0.5
     times = [100*i*smoothness for i in range(int(tottime/(100*smoothness)))]
 
     modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
 
-    print(modhist["a"])
-
+    #print(modhist["a"])
 
 
     # Plot solution to dynamic thermal problem
@@ -379,7 +459,10 @@ if __name__=="__main__":
 
 
     # Solve stationary mechanical problem       Nevermind, don't really care about that right now
-    coord, edof, dofs, bdofs, element_markers = MakeMechMesh(NozzleGeom())
+    if test :
+        coord, edof, dofs, bdofs, element_markers = MakeMechTestMesh()
+    else :
+        coord, edof, dofs, bdofs, element_markers = MakeMechMesh(NozzleGeom())
 
     K = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers)
 
