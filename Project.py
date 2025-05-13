@@ -17,13 +17,15 @@ import calfem.vis_mpl as cfv
 
 import numpy as np
 
+from scipy.sparse import lil_matrix
+
 # Mesh data
-el_sizef, el_type= 0.08, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
+el_sizef, el_type= 0.2, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
 thickness = 1 # meter
 mesh_dir = "./"
 
 MARKER_CuCr = 0
-ECu = 139       # Young's modulus (GPa)
+ECu = 139e9     # Young's modulus (Pa)
 VCu = 0.18      # Poisson's ratio
 AlphaCu = 17e-6 # thermal expansion coefficient (1/K)
 RhoCu = 8890    # Density (kg/m^3)
@@ -31,7 +33,7 @@ CCu = 377       # Specific heat (J/KgK)
 KCu = 323       # Thermal conductivity (W/mK)
 
 MARKER_TiAlloy = 1
-ETi = 108       # Young's modulus (GPa)
+ETi = 108e9     # Young's modulus (Pa)
 VTi = 0.22      # Poisson's ratio
 AlphaTi = 8.8e-6# thermal expansion coefficient (1/K)
 RhoTi = 4540    # Density (kg/m^3)
@@ -331,7 +333,7 @@ def MakeMechMesh(geom) :
 def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers) :
     # Assemble plane strain matrix
     ptype = 1
-    ep = np.array([ptype, 1])
+    ep = np.array([ptype, thickness])
     n_dofs = np.size(dofs)
     ex, ey = cfc.coordxtr(edof, coord, dofs)
     DCu = cfc.hooke(ptype, ECu, VCu)
@@ -345,18 +347,43 @@ def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers) :
             Ke = cfc.plante(ex[i], ey[i], ep, DCu)
         K = cfc.assem(edof[i], K, Ke)
 
-    return K
+    return K, DCu, DTi, ex, ey, ep
 
-def MakeMechBC(F, bdofs) :
+def MakeMechBC(F, bdofs, edof) :
     edges = nodesToEdges(bdofs, edof)
 
     bc, bc_value = np.array([], 'i'), np.array([], 'f')
-    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_ChamberOutside, 0, 0)
+    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_ChamberOutside, 0.0)
+    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_QN_0, 0.0, 2)
+
+    # Calculate force from pressure inside chamber
+    for e in edges[MARKER_Inside]:
+        # print(e)
+        x1, y1 = coord[int(e[0]/2 - 1)]
+        # print("x1, y1: ", x1, y1)
+        x2, y2 = coord[int(e[1]/2 - 1)]
+        # print("x2, y2: ", x2, y2)
+        dx = x1 - x2
+        dy = y1 - y2
+        print("d: ", dx, dy)
+        fx = -thickness*InsidePressure*dy
+        fy = thickness*InsidePressure*dx
+        if fy < 0 :
+            fx *= -1
+            fy *= -1
+        print("f: ", fx, fy)
+        F[dofs[int((e[0])/2 - 1)][0] - 1] += fx / 2
+        F[dofs[int((e[0])/2 - 1)][1] - 1] += fy / 2
+
+        F[dofs[int(e[1]/2 - 1)][0] - 1] += fx / 2
+        F[dofs[int(e[1]/2 - 1)][1] - 1] += fy / 2
+
+    return F, bc, bc_value
 
 
 
 if __name__=="__main__":
-    test = False
+    test = False #Switch för att välja ifall man vill köra testcaset från canvas eller om man vill köra lösningen till uppgiften
 
     # Solve stationary thermal problem
     if test:    # Försöker få testcaset att funka men lyckas inte. Crashar inte men blir fel än så länge, och när jag försöker tweaka blir K-matrisen singulär
@@ -369,7 +396,6 @@ if __name__=="__main__":
 
         ECu = 200
         VCu = 0.3
-
     else:
         coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
 
@@ -384,19 +410,12 @@ if __name__=="__main__":
     a, r = cfc.solveq(K, F, bc, bc_value)
 
     # Plot solution to steady state problem
-    if True :   # Swich to turn of plotting for thermal problem
-        if not test :
-            cfv.draw_geometry(
-                NozzleGeom(),
-                label_curves=True,
-                title="Geometry: Computer Lab Exercise 2"
-            )
-        else :
-            cfv.draw_geometry(
-                TestGeom(),
-                label_curves=True,
-                title="Geometry: Computer Lab Exercise 2"
-            )
+    if False :   # Swich to turn of plotting for thermal problem
+        cfv.draw_geometry(
+            NozzleGeom(),
+            label_curves=True,
+            title="Geometry: Computer Lab Exercise 2"
+        )
         plt.show()
         cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=1, el_type=2, filled=True)
         plt.show()
@@ -424,7 +443,7 @@ if __name__=="__main__":
 
 
     # Plot solution to dynamic thermal problem
-    if True:
+    if False:
         UNIT = 1 / 2.54
         wcm, hcm = 35, 10
         fig, (ax, cbax) = plt.subplots( 1, 2, width_ratios=[10, 1], figsize=(wcm * UNIT, hcm * UNIT))
@@ -458,25 +477,45 @@ if __name__=="__main__":
 
 
 
-    # Solve stationary mechanical problem       Nevermind, don't really care about that right now
-    if test :
-        coord, edof, dofs, bdofs, element_markers = MakeMechTestMesh()
-    else :
-        coord, edof, dofs, bdofs, element_markers = MakeMechMesh(NozzleGeom())
+    # Solve stationary mechanical problem
+    coord, edof, dofs, bdofs, element_markers = MakeMechMesh(NozzleGeom())
 
-    K = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers)
+    K, DCu, DTi, ex, ey, ep = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers)
 
     F = np.zeros([np.size(dofs), 1])
 
-    cfu.applyforce(bdofs, F, MARKER_Inside, 1000, 0)
+    F, bc, bc_value = MakeMechBC(F, bdofs, edof)
 
-    #F, bc, bc_value = MakeMechBC(F, bdofs)
+    a, r = cfc.solveq(K, F, bc, bc_value)
+
+    # Calculate von mises stress
+    ed = cfc.extract_eldisp(edof, a) # element displacement
+
+    von_mises = []
+
+    for i in range(edof.shape[0]) :
+        if element_markers[i] == MARKER_CuCr :
+            es, et = cfc.plants(ex[i,:], ey[i,:], ep, DCu, ed[i, :])
+        else :
+            es, et = cfc.plants(ex[i,:], ey[i,:], ep, DTi, ed[i, :])
+        von_mises.append(np.sqrt( pow(es[0,0],2) - es[0,0]*es[0,1] + pow(es[0,1],2) + 3*pow(es[0,2],2) ))
+
+    cfv.figure(fig_size=(10, 5))
+    cfv.draw_element_values(
+        von_mises,
+        coord,
+        edof,
+        2,
+        el_type,
+        a,
+        draw_elements=False,
+        draw_undisplaced_mesh=True,
+        title="Effective stress and displacement",
+    )
+    cfv.show_and_wait()
 
 
 
-
-
-    # Eventuellt behöver även bc för tid = 0 sättas
 
 
     """SteadyStateSim()
