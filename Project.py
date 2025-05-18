@@ -17,20 +17,13 @@ import calfem.vis_mpl as cfv
 
 import numpy as np
 
-from scipy.sparse import lil_matrix
 
 # Mesh data
-el_sizef, el_type= 0.2, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
-thickness = 1 # meter
+el_sizef, el_type= 0.08, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
+
 mesh_dir = "./"
 
 MARKER_CuCr = 0
-ECu = 139e9     # Young's modulus (Pa)
-VCu = 0.18      # Poisson's ratio
-AlphaCu = 17e-6 # thermal expansion coefficient (1/K)
-RhoCu = 8890    # Density (kg/m^3)
-CCu = 377       # Specific heat (J/KgK)
-KCu = 323       # Thermal conductivity (W/mK)
 
 MARKER_TiAlloy = 1
 ETi = 108e9     # Young's modulus (Pa)
@@ -45,9 +38,6 @@ ChamberHeating = 5000 # W/m^2
 InsidePressure = 1e6 # Pa
 
 MARKER_BellOutside = 3
-AlphaConvection = 50 # W/m^2K
-Tinfty = 293 # K
-T0 = Tinfty
 
 MARKER_ChamberOutside = 4
 ChamberCooling = 1000 # W/m^2
@@ -55,7 +45,198 @@ ChamberCooling = 1000 # W/m^2
 MARKER_QN_0 = 5
 MARKER_Material_Transition = 6 # vet inte om något särskillt behöver göras, men verkar inte så
 MARKER_TCONST = 7
-TCONST = 100 # deg C
+TCONST = 100 # K
+
+
+
+def test(plot) :
+    some_constants = {
+        "AlphaConvection" : 1000,
+        "thickness" : 0.010,  # m
+        "KCu" : 10,
+        "RhoCu" : 1,
+        "ECu" : 200,
+        "VCu" : 0.3,
+        "Tinfty" : 20,  # C
+    }
+
+    coord, edof, dofs, bdofs, element_markers = MakeThermTestMesh()
+    K = AssembleThermStiffness(coord, edof, dofs, bdofs, element_markers, some_constants)
+
+    F = np.zeros([np.size(dofs), 1])
+
+    F, bc, bc_value, KModifier = MakeThermBC(F, bdofs, edof, coord, some_constants)
+    K = K + KModifier  # Update K with changes from convection BC
+
+    print(K)
+    print(F)
+    print(bc)
+    print(bc_value)
+
+    # Solve stationary thermal problem
+    a, r = cfc.solveq(K, F, bc, bc_value)
+
+    # Plot solution to steady state problem
+    if plot:  # Swich to turn of plotting for thermal problem
+        cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=1, el_type=2, filled=True)
+        plt.show()
+
+        print("Results:")
+        print(a)
+        plotTherm(a, coord, edof)
+
+    # Solve dynamic thermal problem
+    #C = MakeCapacityMatrix(dofs, element_markers)
+    C = MakeCapacityMatrix2(dofs, edof, element_markers, some_constants)
+
+    a0 = np.ones((len(dofs), 1)) * some_constants["Tinfty"]
+
+    dt, tottime, alpha = 10, 3600, 1
+
+    smoothness = 0.5
+    times = [100*i*smoothness for i in range(int(tottime/(100*smoothness)))]
+
+    print(np.shape(K))
+    print(np.shape(C))
+    print(np.shape(F))
+    print(np.shape(a0))
+
+    modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
+
+    # Plot solution to dynamic thermal problem
+    if plot:
+        UNIT = 1 / 2.54
+        wcm, hcm = 35, 10
+        fig, (ax, cbax) = plt.subplots( 1, 2, width_ratios=[10, 1], figsize=(wcm * UNIT, hcm * UNIT))
+
+        x, y = coord.T
+        fmt = '%1.2f'
+        v = np.asarray(modhist["a"].transpose()[0])
+        edof_tri = cfv.topo_to_tri(edof)
+        im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
+        fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
+        #im.set_clim(Tinfty, 420)
+        i0 = 0
+        tx = ax.text(3, 0.1, str(i0))
+
+        def animate(i):
+            v = np.asarray(modhist["a"].transpose()[i])
+            #vmax = np.max(v)
+            #vmin = np.min(v)
+            im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
+            fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
+            #im.set_clim(vmin, 420)
+            tx.set_text("frame: " + str(i))
+
+        plt.title("Temperature distribution at equilibrium")
+
+        ani = animation.FuncAnimation(fig=fig, func=animate, frames = len(times), interval=(smoothness*200))
+        plt.show()
+
+def statTherm(plot) :
+    some_constants = {
+        "AlphaConvection" : 50,  # W/m^2K
+        "thickness" : 1,  # meter
+        "ECu" : 139e9,  # Young's modulus (Pa)
+        "VCu" : 0.18,  # Poisson's ratio
+        "AlphaCu" : 17e-6,  # thermal expansion coefficient (1/K)
+        "RhoCu" : 8890,  # Density (kg/m^3)
+        "CCu" : 377,  # Specific heat (J/KgK)
+        "KCu" : 323,  # Thermal conductivity (W/mK)
+        "Tinfty": 293,  # K
+    }
+
+
+    coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
+
+    K = AssembleThermStiffness(coord, edof, dofs, bdofs, element_markers, some_constants)
+
+    F = np.zeros([np.size(dofs), 1])
+
+    F, bc, bc_value, KModifier = MakeThermBC(F, bdofs, edof, coord, some_constants)
+    K = K + KModifier  # Update K with changes from convection BC
+
+    # Solve stationary thermal problem
+    a, r = cfc.solveq(K, F, bc, bc_value)
+
+    # Plot solution to steady state problem
+    if plot:  # Swich to turn of plotting for thermal problem
+        cfv.draw_geometry(
+            NozzleGeom(),
+            label_curves=True,
+            title="Geometry: Computer Lab Exercise 2"
+        )
+        plt.show()
+        cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=1, el_type=2, filled=True)
+        plt.show()
+        plotTherm(a, coord, edof)
+
+def dynTherm(plot) :
+    some_constants = {
+        "AlphaConvection": 50,  # W/m^2K
+        "thickness": 1,  # meter
+        "ECu": 139e9,  # Young's modulus (Pa)
+        "VCu": 0.18,  # Poisson's ratio
+        "AlphaCu": 17e-6,  # thermal expansion coefficient (1/K)
+        "RhoCu": 8890,  # Density (kg/m^3)
+        "CCu": 377,  # Specific heat (J/KgK)
+        "KCu": 323,  # Thermal conductivity (W/mK)
+        "Tinfty": 293,  # K
+    }
+
+    coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
+
+    K = AssembleThermStiffness(coord, edof, dofs, bdofs, element_markers, some_constants)
+
+    F = np.zeros([np.size(dofs), 1])
+
+    F, bc, bc_value, KModifier = MakeThermBC(F, bdofs, edof, coord, some_constants)
+    K = K + KModifier  # Update K with changes from convection BC
+
+    C = MakeCapacityMatrix(dofs, element_markers, some_constants)
+    #C = MakeCapacityMatrix2(dofs, element_markers)
+
+    a0 = np.ones((len(dofs), 1)) * some_constants["Tinfty"]
+
+    dt, tottime, alpha = 10, 3600, 1
+
+    smoothness = 0.5
+    times = [100 * i * smoothness for i in range(int(tottime / (100 * smoothness)))]
+
+    modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
+
+    if plot:
+        UNIT = 1 / 2.54
+        wcm, hcm = 35, 10
+        fig, (ax, cbax) = plt.subplots( 1, 2, width_ratios=[10, 1], figsize=(wcm * UNIT, hcm * UNIT))
+
+        x, y = coord.T
+        fmt = '%1.2f'
+        v = np.asarray(modhist["a"].transpose()[0])
+        edof_tri = cfv.topo_to_tri(edof)
+        im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
+        fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
+        #im.set_clim(Tinfty, 420)
+        i0 = 0
+        tx = ax.text(3, 0.1, str(i0))
+
+        def animate(i) :
+            v = np.asarray(modhist["a"].transpose()[i])
+            #vmax = np.max(v)
+            #vmin = np.min(v)
+            im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
+            fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
+            #im.set_clim(vmin, 420)
+            tx.set_text("frame: " + str(i))
+
+
+        plt.title("Temperature distribution at equilibrium")
+
+
+        ani = animation.FuncAnimation(fig=fig, func=animate, frames = len(times), interval=(smoothness*200))
+        plt.show()
+
+
 
 
 def nodesToEdges ( nodes : dict , enod : np . array ) -> dict :
@@ -171,29 +352,20 @@ def MakeThermTestMesh() :
     edof = np.zeros((8, 3), dtype=int)
     edof[0] = [1, 2, 5]
     edof[1] = [2, 3, 5]
-    edof[2] = [1, 4, 5]
+    edof[2] = [1, 5, 4]
     edof[3] = [3, 6, 5]
-    edof[4] = [4, 7, 5]
-    edof[5] = [7, 8, 5]
-    edof[6] = [8, 9, 5]
+    edof[4] = [4, 5, 7]
+    edof[5] = [7, 5, 8]
+    edof[6] = [8, 5, 9]
     edof[7] = [6, 9, 5]
 
     #element_markers = np.zeros((8), dtype=int)
-    element_markers = [0] * 8
-    element_markers[0] = MARKER_CuCr
-    element_markers[1] = MARKER_CuCr
-    element_markers[2] = MARKER_CuCr
-    element_markers[3] = MARKER_CuCr
-    element_markers[4] = MARKER_CuCr
-    element_markers[5] = MARKER_CuCr
-    element_markers[6] = MARKER_CuCr
-    element_markers[7] = MARKER_CuCr
-
+    element_markers = [MARKER_CuCr] * 8
 
     bdofs = {
         MARKER_TCONST: [3, 6, 9],
         MARKER_BellOutside: [8, 9],
-        MARKER_Material_Transition: [1, 2, 3, 4, 7, 8]
+        #MARKER_Material_Transition: [1, 2, 3, 4, 7, 8]
     }
 
 
@@ -211,13 +383,13 @@ def MakeThermMesh(geom) :
 
     return (coord, edof, dofs, bdofs, element_markers)
 
-def AssembleThermStiffness(coord, edof, dofs, bdofs, element_markers) :
-    epCu = np.array([RhoCu])
-    epTi = np.array([RhoTi])
+def AssembleThermStiffness(coord, edof, dofs, bdofs, element_markers, some_constants) :
+    epCu = [some_constants["thickness"]]
+    epTi = [some_constants["thickness"]]
     n_dofs = np.size(dofs)
     ex, ey = cfc.coordxtr(edof, coord, dofs)
-    DCu = np.array([[KCu, 0], [0, KCu]])  # Thermal transfer constitutive matrix
-    DTi = np.array([[KTi, 0], [0, KTi]])  # Thermal transfer constitutive matrix
+    DCu = np.array([[some_constants["KCu"], 0.0], [0.0, some_constants["KCu"]]])  # Thermal transfer constitutive matrix
+    DTi = np.array([[KTi, 0.0], [0.0, KTi]])  # Thermal transfer constitutive matrix
     K = np.zeros([n_dofs, n_dofs])
 
     for i in range(len(edof)):
@@ -229,11 +401,11 @@ def AssembleThermStiffness(coord, edof, dofs, bdofs, element_markers) :
 
     return K
 
-def MakeThermBC(F, bdofs) :
+def MakeThermBC(F, bdofs, edof, coord, some_constants) :
     edges = nodesToEdges(bdofs, edof)
 
     bc, bc_value = np.array([], 'i'), np.array([], 'f')
-    if test:
+    if MARKER_TCONST in bdofs.keys():
         bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_TCONST, TCONST, 0)
 
     if not test :
@@ -248,8 +420,8 @@ def MakeThermBC(F, bdofs) :
             dy = y1-y2
             l = np.sqrt(dx*dx + dy*dy)
             #print("l: ", l)
-            F[e[0]-1] += l*thickness*ChamberHeating/2
-            F[e[1]-1] += l*thickness*ChamberHeating/2
+            F[e[0]-1] += l*some_constants["thickness"]*ChamberHeating/2
+            F[e[1]-1] += l*some_constants["thickness"]*ChamberHeating/2
 
         # Add cooling BC to outside of nozzle
         for e in edges[MARKER_ChamberOutside] :
@@ -258,31 +430,37 @@ def MakeThermBC(F, bdofs) :
             dx = x1-x2
             dy = y1-y2
             l = np.sqrt(dx*dx + dy*dy)
-            F[e[0]-1] -= l*thickness*ChamberCooling/2
-            F[e[1]-1] -= l*thickness*ChamberCooling/2
+            F[e[0]-1] -= l*some_constants["thickness"]*ChamberCooling/2
+            F[e[1]-1] -= l*some_constants["thickness"]*ChamberCooling/2
 
     # Add convecton BC
     KModifier = np.zeros([len(F), len(F)])
     for e in edges[MARKER_BellOutside] :
+        #print("e: ", e)
         x1, y1 = coord[e[0]-1]
         x2, y2 = coord[e[1]-1]
         dx = x1-x2
         dy = y1-y2
+        #print("dx, dy: ", dx, dy)
         l = np.sqrt(dx*dx + dy*dy)
-        F[e[0]-1] += l*thickness*AlphaConvection*Tinfty/2
-        F[e[1]-1] += l*thickness*AlphaConvection*Tinfty/2
-        KModifier[e[0]-1][e[0]-1] += l * thickness * AlphaConvection /2
-        KModifier[e[1]-1][e[1]-1] += l * thickness * AlphaConvection /2
+        #print("l: ", l)
+        print(l, some_constants["thickness"], some_constants["AlphaConvection"], some_constants["Tinfty"])
+        print("df: ", l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2)
+        F[e[0]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2 #0.005 * 0.010 * 1000 * 20 / 2 = 5*1*0.01*10 =
+        F[e[1]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2
+        KModifier[e[0]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /2
+        KModifier[e[1]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /2
 
-    #print(F)
+    print(F)
+    print(KModifier)
 
     return F, bc, bc_value, KModifier
 
-def plotTherm(a) :
+def plotTherm(a, coord, edof) :
     UNIT = 1 / 2.54
     wcm, hcm = 35, 10
-    if test:
-        wcm, hcm = 20, 15
+
+    fmt = '%1.2f'
     fig, ax = plt.subplots(figsize=(wcm * UNIT, hcm * UNIT))
 
     v = np.asarray(a)
@@ -290,19 +468,32 @@ def plotTherm(a) :
     edof_tri = cfv.topo_to_tri(edof)
     tri = plt.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
 
-    fig.colorbar(tri, ax=ax, label='Temperature [K]')
+    fig.colorbar(tri, ax=ax, label='Temperature [K]', format=fmt)
     plt.title("Temperature distribution at equilibrium")
 
     plt.show()
 
-def MakeCapacityMatrix(dofs, element_markers) -> np.array :
+def MakeCapacityMatrix(dofs, element_markers, some_constants) -> np.array :
     C = np.zeros((len(dofs), len(dofs)))
-    for e in dofs:
+    for e in dofs:      # I have been a bad boy och itererat över dofsen istället för över elementen!!
+                        # Detta bör dock vara fixat i MakeCapacityMatrix2()
         for i in e :
             if element_markers[i] == MARKER_CuCr :
-                C[i-1, i-1] = CCu
+                C[i-1, i-1] = some_constants["CCu"]
             if element_markers[i] == MARKER_TiAlloy :
                 C[i-1, i-1] = CTi
+    return C
+
+def MakeCapacityMatrix2(dofs, edof, element_markers, some_constants) :
+    C = np.zeros((len(dofs), len(dofs)))
+
+    for i in range(len(edof)) :
+        if element_markers[i] == MARKER_CuCr :
+            for d in edof[i]:
+                C[d-1, d-1] = some_constants["CCu"]
+        elif element_markers[i] == MARKER_TiAlloy :
+            for d in edof[i]:
+                C[d-1, d-1] = CTi
     return C
 
 
@@ -330,16 +521,70 @@ def MakeMechMesh(geom) :
 
     return (coord, edof, dofs, bdofs, element_markers)
 
-def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers) :
+def MakeMechTestMesh() :
+    coord = np.zeros((9, 2))
+    coord[0] = [-0.005, -0.005]    # Bottom left
+    coord[1] = [0, -0.005]         # Bottom middle
+    coord[2] = [0.005, -0.005]     # Bottom right
+    coord[3] = [-0.005, 0]         # Middle left
+    coord[4] = [0, 0]              # Center
+    coord[5] = [0.005, 0]          # Middle right
+    coord[6] = [-0.005, 0.005]     # Top left
+    coord[7] = [0, 0.005]          # Top middle
+    coord[8] = [0.005, 0.005]      # Top right
+
+    dofs = np.zeros((9, 2), dtype=int)
+    dofs[0] = [1, 2]
+    dofs[1] = [3, 4]
+    dofs[2] = [5, 6]
+    dofs[3] = [7, 8]
+    dofs[4] = [9, 10]
+    dofs[5] = [11, 12]
+    dofs[6] = [13, 14]
+    dofs[7] = [15, 16]
+    dofs[8] = [17, 18]
+
+
+    edof = np.zeros((8, 6), dtype=int)
+    edof[0] = [1, 2, 3, 4, 9, 10]
+    edof[1] = [3, 4, 5, 6, 9, 10]
+    edof[2] = [1, 2, 7, 8, 9, 10]
+    edof[3] = [5, 6, 11, 12, 9, 10]
+    edof[4] = [7, 8, 13, 14, 9, 10]
+    edof[5] = [13, 14, 15, 16, 9, 10]
+    edof[6] = [15, 16, 17, 18, 9, 10]
+    edof[7] = [11, 12, 17, 18, 9, 10]
+
+    #element_markers = np.zeros((8), dtype=int)
+    element_markers = [0] * 8
+    element_markers[0] = MARKER_CuCr
+    element_markers[1] = MARKER_CuCr
+    element_markers[2] = MARKER_CuCr
+    element_markers[3] = MARKER_CuCr
+    element_markers[4] = MARKER_CuCr
+    element_markers[5] = MARKER_CuCr
+    element_markers[6] = MARKER_CuCr
+    element_markers[7] = MARKER_CuCr
+
+
+    bdofs = {
+        MARKER_TCONST: [3, 6, 9],
+        MARKER_BellOutside: [8, 9],
+        MARKER_Material_Transition: [1, 2, 3, 4, 7, 8]
+    }
+
+
+    return (coord, edof, dofs, bdofs, element_markers)
+
+def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants) :
     # Assemble plane strain matrix
     ptype = 1
-    ep = np.array([ptype, thickness])
+    ep = np.array([ptype, some_constants["thickness"]])
     n_dofs = np.size(dofs)
     ex, ey = cfc.coordxtr(edof, coord, dofs)
-    DCu = cfc.hooke(ptype, ECu, VCu)
+    DCu = cfc.hooke(ptype, some_constants["ECu"], some_constants["VCu"])
     DTi = cfc.hooke(ptype, ETi, VTi)
     K = np.zeros([n_dofs, n_dofs])
-
     for i in range(len(edof)):
         if element_markers[i] == 1:
             Ke = cfc.plante(ex[i], ey[i], ep, DTi)
@@ -349,7 +594,7 @@ def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers) :
 
     return K, DCu, DTi, ex, ey, ep
 
-def MakeMechBC(F, bdofs, edof) :
+def MakeMechBC(F, bdofs, edof, some_constants) :
     edges = nodesToEdges(bdofs, edof)
 
     bc, bc_value = np.array([], 'i'), np.array([], 'f')
@@ -365,37 +610,42 @@ def MakeMechBC(F, bdofs, edof) :
         # print("x2, y2: ", x2, y2)
         dx = x1 - x2
         dy = y1 - y2
-        print("d: ", dx, dy)
-        fx = -thickness*InsidePressure*dy
-        fy = thickness*InsidePressure*dx
+        #print("d: ", dx, dy)
+        fx = -some_constants["thickness"]*InsidePressure*dy
+        fy = some_constants["thickness"]*InsidePressure*dx
         if fy < 0 :
             fx *= -1
             fy *= -1
-        print("f: ", fx, fy)
+        #print("f: ", fx, fy)
         F[dofs[int((e[0])/2 - 1)][0] - 1] += fx / 2
         F[dofs[int((e[0])/2 - 1)][1] - 1] += fy / 2
 
         F[dofs[int(e[1]/2 - 1)][0] - 1] += fx / 2
         F[dofs[int(e[1]/2 - 1)][1] - 1] += fy / 2
 
+    """drag_node = 8 # If you want to drag a certain node manually
+    print(coord[drag_node]) # Confirm position of node you are dragging
+    F[dofs[drag_node][0]-1] += -1000000000 # The force you are dragging with in x-direction
+    F[dofs[drag_node][1]-1] += 1000000000 # The force you are dragging with in y-direction
+    """
+
     return F, bc, bc_value
 
 
 
 if __name__=="__main__":
-    test = False #Switch för att välja ifall man vill köra testcaset från canvas eller om man vill köra lösningen till uppgiften
+    #test(True)
+
+    statTherm(True)
+
+    dynTherm(True)
+
+    """
+    test = True #Switch för att välja ifall man vill köra testcaset från canvas eller om man vill köra lösningen till uppgiften
 
     # Solve stationary thermal problem
     if test:    # Försöker få testcaset att funka men lyckas inte. Crashar inte men blir fel än så länge, och när jag försöker tweaka blir K-matrisen singulär
-        coord, edof, dofs, bdofs, element_markers = MakeThermTestMesh()
-        AlphaConvection = 1000
-        Tinfty = 20
-        thickness = 0.010 # m
-        KCu = 10
-        RhoCu = 1
-
-        ECu = 200
-        VCu = 0.3
+        test()
     else:
         coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
 
@@ -410,7 +660,7 @@ if __name__=="__main__":
     a, r = cfc.solveq(K, F, bc, bc_value)
 
     # Plot solution to steady state problem
-    if False :   # Swich to turn of plotting for thermal problem
+    if True :   # Swich to turn of plotting for thermal problem
         cfv.draw_geometry(
             NozzleGeom(),
             label_curves=True,
@@ -420,12 +670,10 @@ if __name__=="__main__":
         cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=1, el_type=2, filled=True)
         plt.show()
 
-        plotTherm(a)
-
         if test:
             print("Results:")
             print(a)
-
+    plotTherm(a)
 
     # Solve dynamic thermal problem
     C = MakeCapacityMatrix(dofs, element_markers)
@@ -443,7 +691,7 @@ if __name__=="__main__":
 
 
     # Plot solution to dynamic thermal problem
-    if False:
+    if True:
         UNIT = 1 / 2.54
         wcm, hcm = 35, 10
         fig, (ax, cbax) = plt.subplots( 1, 2, width_ratios=[10, 1], figsize=(wcm * UNIT, hcm * UNIT))
@@ -453,17 +701,19 @@ if __name__=="__main__":
         v = np.asarray(modhist["a"].transpose()[0])
         edof_tri = cfv.topo_to_tri(edof)
         im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
-        cb = fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
+        fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
+        #im.set_clim(Tinfty, 420)
         i0 = 0
         tx = ax.text(3, 0.1, str(i0))
 
         def animate(i):
             v = np.asarray(modhist["a"].transpose()[i])
-            vmax = np.max(v)
-            vmin = np.min(v)
+            #vmax = np.max(v)
+            #vmin = np.min(v)
             im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
             fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
-            tx.set_text(i)
+            #im.set_clim(vmin, 420)
+            tx.set_text("frame: " + str(i))
 
 
         plt.title("Temperature distribution at equilibrium")
@@ -472,19 +722,27 @@ if __name__=="__main__":
         ani = animation.FuncAnimation(fig=fig, func=animate, frames = len(times), interval=(smoothness*200))
         plt.show()
 
+"""
 
-
-
-
+    some_constants = {
+        "AlphaConvection": 50,  # W/m^2K
+        "thickness": 1,  # meter
+        "ECu": 139e9,  # Young's modulus (Pa)
+        "VCu": 0.18,  # Poisson's ratio
+        "AlphaCu": 17e-6,  # thermal expansion coefficient (1/K)
+        "RhoCu": 8890,  # Density (kg/m^3)
+        "CCu": 377,  # Specific heat (J/KgK)
+        "KCu": 323,  # Thermal conductivity (W/mK)
+    }
 
     # Solve stationary mechanical problem
     coord, edof, dofs, bdofs, element_markers = MakeMechMesh(NozzleGeom())
 
-    K, DCu, DTi, ex, ey, ep = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers)
+    K, DCu, DTi, ex, ey, ep = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants)
 
     F = np.zeros([np.size(dofs), 1])
 
-    F, bc, bc_value = MakeMechBC(F, bdofs, edof)
+    F, bc, bc_value = MakeMechBC(F, bdofs, edof, some_constants)
 
     a, r = cfc.solveq(K, F, bc, bc_value)
 
@@ -513,14 +771,3 @@ if __name__=="__main__":
         title="Effective stress and displacement",
     )
     cfv.show_and_wait()
-
-
-
-
-
-    """SteadyStateSim()
-    SteadyStatePlot()
-    TransientSim()      # cfc.step1() kan vara användbart
-    TransientPlot()
-    VonMisesSim()       # se https://calfem-for-python.readthedocs.io/en/latest/examples/exm10.html
-    VonMisesPlot()      # cfc.plante() kan vara användbart, se AssembleMechStiffness()"""
