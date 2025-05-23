@@ -1,5 +1,3 @@
-from distutils.command.bdist import bdist
-
 import calfem.geometry as cfg
 import calfem.mesh as cfm
 
@@ -9,7 +7,6 @@ import calfem.utils as cfu
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-import matplotlib.axes as axes
 
 mpl.use('TkAgg')
 
@@ -35,7 +32,6 @@ KTi = 12        # Thermal conductivity (W/mK)
 
 MARKER_Inside = 2
 ChamberHeating = 5000 # W/m^2
-InsidePressure = 1e6 # Pa
 
 MARKER_BellOutside = 3
 
@@ -54,10 +50,12 @@ def test(plot) :
         "AlphaConvection" : 1000,
         "thickness" : 0.010,  # m
         "KCu" : 10,
+        "CCu": 100,  # Specific heat (J/KgK), Not in the test case but it feels good to include a test for the dynamic thermal problem
         "RhoCu" : 1,
-        "ECu" : 200,
+        "ECu" : 200e9,
         "VCu" : 0.3,
         "Tinfty" : 20,  # C
+        "InsidePressure" : -100e6,  # Pa
     }
 
     coord, edof, dofs, bdofs, element_markers = MakeThermTestMesh()
@@ -68,11 +66,6 @@ def test(plot) :
     F, bc, bc_value, KModifier = MakeThermBC(F, bdofs, edof, coord, some_constants)
     K = K + KModifier  # Update K with changes from convection BC
 
-    print(K)
-    print(F)
-    print(bc)
-    print(bc_value)
-
     # Solve stationary thermal problem
     a, r = cfc.solveq(K, F, bc, bc_value)
 
@@ -81,7 +74,7 @@ def test(plot) :
         cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=1, el_type=2, filled=True)
         plt.show()
 
-        print("Results:")
+        print("Temperatures:")
         print(a)
         plotTherm(a, coord, edof)
 
@@ -96,12 +89,9 @@ def test(plot) :
     smoothness = 0.5
     times = [100*i*smoothness for i in range(int(tottime/(100*smoothness)))]
 
-    print(np.shape(K))
-    print(np.shape(C))
-    print(np.shape(F))
-    print(np.shape(a0))
+    dynbc = np.concatenate((np.transpose([bc]), np.transpose([bc_value])), 1)
 
-    modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
+    modhist, dofhist = cfc.step1(K, C, F, a0, dynbc, [dt, tottime, alpha], times, dofs=np.array([]))
 
     # Plot solution to dynamic thermal problem
     if plot:
@@ -133,6 +123,47 @@ def test(plot) :
         ani = animation.FuncAnimation(fig=fig, func=animate, frames = len(times), interval=(smoothness*200))
         plt.show()
 
+
+
+    coord, edof, dofs, bdofs, element_markers = MakeMechTestMesh()
+
+    K, DCu, DTi, ex, ey, ep = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants)
+
+    F = np.zeros([np.size(dofs), 1])
+
+    F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants)
+
+    a, r = cfc.solveq(K, F, bc, bc_value)
+
+    # Calculate von mises stress
+    ed = cfc.extract_eldisp(edof, a)  # element displacement
+
+    von_mises = []
+
+    for i in range(edof.shape[0]):
+        if element_markers[i] == MARKER_CuCr:
+            es, et = cfc.plants(ex[i, :], ey[i, :], ep, DCu, ed[i, :])
+        else:
+            es, et = cfc.plants(ex[i, :], ey[i, :], ep, DTi, ed[i, :])
+        von_mises.append(np.sqrt(pow(es[0, 0], 2) - es[0, 0] * es[0, 1] + pow(es[0, 1], 2) + 3 * pow(es[0, 2], 2)))
+
+    if plot :
+        print("Displacements")
+        print(a)
+        cfv.figure(fig_size=(10, 5))
+        cfv.draw_element_values(
+            von_mises,
+            coord,
+            edof,
+            2,
+            el_type,
+            a,
+            draw_elements=False,
+            draw_undisplaced_mesh=True,
+            title="Effective stress and displacement",
+        )
+        cfv.show_and_wait()
+
 def statTherm(plot) :
     some_constants = {
         "AlphaConvection" : 50,  # W/m^2K
@@ -144,6 +175,7 @@ def statTherm(plot) :
         "CCu" : 377,  # Specific heat (J/KgK)
         "KCu" : 323,  # Thermal conductivity (W/mK)
         "Tinfty": 293,  # K
+        "InsidePressure": 1e6,  # Pa
     }
 
 
@@ -182,6 +214,7 @@ def dynTherm(plot) :
         "CCu": 377,  # Specific heat (J/KgK)
         "KCu": 323,  # Thermal conductivity (W/mK)
         "Tinfty": 293,  # K
+        "InsidePressure": 1e6,  # Pa
     }
 
     coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
@@ -365,7 +398,6 @@ def MakeThermTestMesh() :
     bdofs = {
         MARKER_TCONST: [3, 6, 9],
         MARKER_BellOutside: [8, 9],
-        #MARKER_Material_Transition: [1, 2, 3, 4, 7, 8]
     }
 
 
@@ -444,8 +476,8 @@ def MakeThermBC(F, bdofs, edof, coord, some_constants) :
         #print("dx, dy: ", dx, dy)
         l = np.sqrt(dx*dx + dy*dy)
         #print("l: ", l)
-        print(l, some_constants["thickness"], some_constants["AlphaConvection"], some_constants["Tinfty"])
-        print("df: ", l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2)
+        #print(l, some_constants["thickness"], some_constants["AlphaConvection"], some_constants["Tinfty"])
+        #print("df: ", l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2)
         F[e[0]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2 #0.005 * 0.010 * 1000 * 20 / 2 = 5*1*0.01*10 =
         F[e[1]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2
         KModifier[e[0]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /3
@@ -453,8 +485,8 @@ def MakeThermBC(F, bdofs, edof, coord, some_constants) :
         KModifier[e[0]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /6
         KModifier[e[1]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /6
 
-    print(F)
-    print(KModifier)
+    #print(F)
+    #print(KModifier)
 
     return F, bc, bc_value, KModifier
 
@@ -550,11 +582,11 @@ def MakeMechTestMesh() :
     edof = np.zeros((8, 6), dtype=int)
     edof[0] = [1, 2, 3, 4, 9, 10]
     edof[1] = [3, 4, 5, 6, 9, 10]
-    edof[2] = [1, 2, 7, 8, 9, 10]
+    edof[2] = [1, 2, 9, 10, 7, 8]
     edof[3] = [5, 6, 11, 12, 9, 10]
-    edof[4] = [7, 8, 13, 14, 9, 10]
-    edof[5] = [13, 14, 15, 16, 9, 10]
-    edof[6] = [15, 16, 17, 18, 9, 10]
+    edof[4] = [7, 8, 9, 10, 13, 14]
+    edof[5] = [13, 14, 9, 10, 15, 16]
+    edof[6] = [15, 16, 9, 10, 17, 18]
     edof[7] = [11, 12, 17, 18, 9, 10]
 
     #element_markers = np.zeros((8), dtype=int)
@@ -570,9 +602,9 @@ def MakeMechTestMesh() :
 
 
     bdofs = {
-        MARKER_TCONST: [3, 6, 9],
-        MARKER_BellOutside: [8, 9],
-        MARKER_Material_Transition: [1, 2, 3, 4, 7, 8]
+        MARKER_ChamberOutside: [1, 2, 7, 8, 13, 14],
+        MARKER_Inside: [5, 6, 11, 12, 17, 18],
+        MARKER_TCONST: [15, 16, 17, 18]
     }
 
 
@@ -596,29 +628,34 @@ def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_consta
 
     return K, DCu, DTi, ex, ey, ep
 
-def MakeMechBC(F, bdofs, edof, some_constants) :
-    edges = nodesToEdges(bdofs, edof)
+def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants) :
+    edges = nodesToEdges(bdofs, edof)                                               # Nodes to edges is knas. Använder noder istället för dofs
 
     bc, bc_value = np.array([], 'i'), np.array([], 'f')
-    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_ChamberOutside, 0.0)
-    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_QN_0, 0.0, 2)
+    if MARKER_ChamberOutside in bdofs.keys():
+        bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_ChamberOutside, 0.0)
+    if MARKER_QN_0 in bdofs.keys():
+        bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_QN_0, 0.0, 2)
+    if MARKER_TCONST in bdofs.keys():
+        cfu.applyforce(bdofs, F, MARKER_TCONST, -150e6*some_constants["thickness"]*0.01, 2) # pressure = 100 MPa, thickness = 0.01, sidelenght = 0.01 => 10 KPa
+
 
     # Calculate force from pressure inside chamber
     for e in edges[MARKER_Inside]:
-        # print(e)
+        print(e)
         x1, y1 = coord[int(e[0]/2 - 1)]
-        # print("x1, y1: ", x1, y1)
+        print("x1, y1: ", x1, y1)
         x2, y2 = coord[int(e[1]/2 - 1)]
-        # print("x2, y2: ", x2, y2)
+        print("x2, y2: ", x2, y2)
         dx = x1 - x2
         dy = y1 - y2
         #print("d: ", dx, dy)
-        fx = -some_constants["thickness"]*InsidePressure*dy
-        fy = some_constants["thickness"]*InsidePressure*dx
+        fx = -some_constants["thickness"]*some_constants["InsidePressure"]*dy
+        fy = some_constants["thickness"]*some_constants["InsidePressure"]*dx
         if fy < 0 :
             fx *= -1
             fy *= -1
-        #print("f: ", fx, fy)
+        print("f: ", fx, fy)
         F[dofs[int((e[0])/2 - 1)][0] - 1] += fx / 2
         F[dofs[int((e[0])/2 - 1)][1] - 1] += fy / 2
 
@@ -636,11 +673,11 @@ def MakeMechBC(F, bdofs, edof, some_constants) :
 
 
 if __name__=="__main__":
-    #test(True)
+    test(plot=True)
 
-    statTherm(True)
+    #statTherm(True)
 
-    dynTherm(True)
+    #dynTherm(True)
 
     """
     test = True #Switch för att välja ifall man vill köra testcaset från canvas eller om man vill köra lösningen till uppgiften
@@ -726,7 +763,7 @@ if __name__=="__main__":
 
 """
 
-    some_constants = {
+    """some_constants = {
         "AlphaConvection": 50,  # W/m^2K
         "thickness": 1,  # meter
         "ECu": 139e9,  # Young's modulus (Pa)
@@ -735,6 +772,7 @@ if __name__=="__main__":
         "RhoCu": 8890,  # Density (kg/m^3)
         "CCu": 377,  # Specific heat (J/KgK)
         "KCu": 323,  # Thermal conductivity (W/mK)
+        "InsidePressure": 1e6,  # Pa
     }
 
     # Solve stationary mechanical problem
@@ -744,7 +782,7 @@ if __name__=="__main__":
 
     F = np.zeros([np.size(dofs), 1])
 
-    F, bc, bc_value = MakeMechBC(F, bdofs, edof, some_constants)
+    F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants)
 
     a, r = cfc.solveq(K, F, bc, bc_value)
 
@@ -779,4 +817,4 @@ if __name__=="__main__":
         draw_undisplaced_mesh=True,
         title="Effective stress and displacement",
     )
-    cfv.show_and_wait()
+    cfv.show_and_wait()"""
