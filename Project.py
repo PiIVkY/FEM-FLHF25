@@ -133,6 +133,8 @@ def test(plot) :
 
     F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants)
 
+    F = F*-1
+
     a, r = cfc.solveq(K, F, bc, bc_value)
 
     # Calculate von mises stress
@@ -161,6 +163,7 @@ def test(plot) :
             draw_elements=False,
             draw_undisplaced_mesh=True,
             title="Effective stress and displacement",
+            magnfac=100.0,
         )
         cfv.show_and_wait()
 
@@ -202,6 +205,8 @@ def statTherm(plot) :
         cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=1, el_type=2, filled=True)
         plt.show()
         plotTherm(a, coord, edof)
+
+    return a
 
 def dynTherm(plot) :
     some_constants = {
@@ -268,6 +273,63 @@ def dynTherm(plot) :
 
         ani = animation.FuncAnimation(fig=fig, func=animate, frames = len(times), interval=(smoothness*200))
         plt.show()
+
+def Mech(plot, temps) :
+    some_constants = {
+        "AlphaConvection": 50,  # W/m^2K
+        "thickness": 1,  # meter
+        "ECu": 139e9,  # Young's modulus (Pa)
+        "VCu": 0.18,  # Poisson's ratio
+        "AlphaCu": 17e-6,  # thermal expansion coefficient (1/K)
+        "RhoCu": 8890,  # Density (kg/m^3)
+        "CCu": 377,  # Specific heat (J/KgK)
+        "KCu": 323,  # Thermal conductivity (W/mK)
+        "InsidePressure": 1e6,  # Pa
+    }
+
+    # Solve stationary mechanical problem
+    coord, edof, dofs, bdofs, element_markers = MakeMechMesh(NozzleGeom())
+
+    K, DCu, DTi, ex, ey, ep = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants)
+
+    F = np.zeros([np.size(dofs), 1])
+
+    F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants)
+
+    a, r = cfc.solveq(K, F, bc, bc_value)
+
+    # Calculate von mises stress
+    ed = cfc.extract_eldisp(edof, a)  # element displacement
+
+    von_mises = []
+
+    for i in range(edof.shape[0]):
+        if element_markers[i] == MARKER_CuCr:
+            es, et = cfc.plants(ex[i, :], ey[i, :], ep, DCu, ed[i, :])
+        else:
+            es, et = cfc.plants(ex[i, :], ey[i, :], ep, DTi, ed[i, :])
+        von_mises.append(np.sqrt(pow(es[0, 0], 2) - es[0, 0] * es[0, 1] + pow(es[0, 1], 2) + 3 * pow(es[0, 2], 2)))
+
+    x = 0
+    for i in von_mises:
+        if (i > x):
+            x = i
+    print("biggest von_mises:", x / 1e6)
+
+    cfv.figure(fig_size=(10, 5))
+    cfv.draw_element_values(
+        von_mises,
+        coord,
+        edof,
+        2,
+        el_type,
+        a,
+        draw_elements=False,
+        draw_undisplaced_mesh=True,
+        title="Effective stress and displacement",
+        magnfac=10.0,
+    )
+    cfv.show_and_wait()
 
 
 
@@ -629,7 +691,9 @@ def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_consta
     return K, DCu, DTi, ex, ey, ep
 
 def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants) :
-    edges = nodesToEdges(bdofs, edof)                                               # Nodes to edges is knas. Använder noder istället för dofs
+    bnods = {key: np.divide(bdofs[key][1::2], 2) for key in bdofs}
+    enods = edof[:,1::2]/2
+    edges = nodesToEdges(bnods, enods)                                               # Nodes to edges is knas. Använder noder istället för dofs
 
     bc, bc_value = np.array([], 'i'), np.array([], 'f')
     if MARKER_ChamberOutside in bdofs.keys():
@@ -637,184 +701,55 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants) :
     if MARKER_QN_0 in bdofs.keys():
         bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_QN_0, 0.0, 2)
     if MARKER_TCONST in bdofs.keys():
-        cfu.applyforce(bdofs, F, MARKER_TCONST, -150e6*some_constants["thickness"]*0.01, 2) # pressure = 100 MPa, thickness = 0.01, sidelenght = 0.01 => 10 KPa
+        cfu.applyforce(bdofs, F, MARKER_TCONST, -150e6*some_constants["thickness"]*0.005/2, 2) # pressure = 100 MPa, thickness = 0.01, sidelenght = 0.01 => 10 KN
 
 
     # Calculate force from pressure inside chamber
     for e in edges[MARKER_Inside]:
-        print(e)
-        x1, y1 = coord[int(e[0]/2 - 1)]
-        print("x1, y1: ", x1, y1)
-        x2, y2 = coord[int(e[1]/2 - 1)]
-        print("x2, y2: ", x2, y2)
+        #print(e)
+        x1, y1 = coord[int(e[0] - 1)]
+        #print("x1, y1: ", x1, y1)
+        x2, y2 = coord[int(e[1] - 1)]
+        #print("x2, y2: ", x2, y2)
         dx = x1 - x2
         dy = y1 - y2
         #print("d: ", dx, dy)
         fx = -some_constants["thickness"]*some_constants["InsidePressure"]*dy
         fy = some_constants["thickness"]*some_constants["InsidePressure"]*dx
-        if fy < 0 :
+
+        wrong_way = False
+        for t in enods :
+            if e[0] in t and e[1] in t :
+                for i in t :
+                    if i != e[0] and i != e[1] :
+                        inside = i
+                        x3, y3 = coord[int(i-1)]
+                        dx = x3 - x1
+                        dy = y3 - y1
+                        if fx*dx + fy*dy < 0 :
+                            wrong_way = True
+
+        if wrong_way :
             fx *= -1
             fy *= -1
-        print("f: ", fx, fy)
-        F[dofs[int((e[0])/2 - 1)][0] - 1] += fx / 2
-        F[dofs[int((e[0])/2 - 1)][1] - 1] += fy / 2
+        #print("f: ", fx, fy)
+        F[dofs[int((e[0]) - 1)][0] - 1] += fx / 2
+        F[dofs[int((e[0]) - 1)][1] - 1] += fy / 2
 
-        F[dofs[int(e[1]/2 - 1)][0] - 1] += fx / 2
-        F[dofs[int(e[1]/2 - 1)][1] - 1] += fy / 2
-
-    """drag_node = 8 # If you want to drag a certain node manually
-    print(coord[drag_node]) # Confirm position of node you are dragging
-    F[dofs[drag_node][0]-1] += -1000000000 # The force you are dragging with in x-direction
-    F[dofs[drag_node][1]-1] += 1000000000 # The force you are dragging with in y-direction
-    """
+        F[dofs[int(e[1] - 1)][0] - 1] += fx / 2
+        F[dofs[int(e[1] - 1)][1] - 1] += fy / 2
+    print(F)
+    print(bc, bc_value)
 
     return F, bc, bc_value
 
 
 
 if __name__=="__main__":
-    test(plot=True)
+    #test(plot=True)
 
-    #statTherm(True)
+    temps = statTherm(True)
 
     #dynTherm(True)
 
-    """
-    test = True #Switch för att välja ifall man vill köra testcaset från canvas eller om man vill köra lösningen till uppgiften
-
-    # Solve stationary thermal problem
-    if test:    # Försöker få testcaset att funka men lyckas inte. Crashar inte men blir fel än så länge, och när jag försöker tweaka blir K-matrisen singulär
-        test()
-    else:
-        coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
-
-    K = AssembleThermStiffness(coord, edof, dofs, bdofs, element_markers)
-
-    F = np.zeros([np.size(dofs), 1])
-
-    F, bc, bc_value, KModifier = MakeThermBC(F, bdofs)
-    K = K+KModifier # Update K with changes from convection BC
-
-    # Solve stationary thermal problem
-    a, r = cfc.solveq(K, F, bc, bc_value)
-
-    # Plot solution to steady state problem
-    if True :   # Swich to turn of plotting for thermal problem
-        cfv.draw_geometry(
-            NozzleGeom(),
-            label_curves=True,
-            title="Geometry: Computer Lab Exercise 2"
-        )
-        plt.show()
-        cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=1, el_type=2, filled=True)
-        plt.show()
-
-        if test:
-            print("Results:")
-            print(a)
-    plotTherm(a)
-
-    # Solve dynamic thermal problem
-    C = MakeCapacityMatrix(dofs, element_markers)
-
-    a0 = np.ones((len(dofs), 1)) * T0
-
-    dt, tottime, alpha = 10, 3600, 1
-
-    smoothness = 0.5
-    times = [100*i*smoothness for i in range(int(tottime/(100*smoothness)))]
-
-    modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
-
-    #print(modhist["a"])
-
-
-    # Plot solution to dynamic thermal problem
-    if True:
-        UNIT = 1 / 2.54
-        wcm, hcm = 35, 10
-        fig, (ax, cbax) = plt.subplots( 1, 2, width_ratios=[10, 1], figsize=(wcm * UNIT, hcm * UNIT))
-
-        x, y = coord.T
-        fmt = '%1.2f'
-        v = np.asarray(modhist["a"].transpose()[0])
-        edof_tri = cfv.topo_to_tri(edof)
-        im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
-        fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
-        #im.set_clim(Tinfty, 420)
-        i0 = 0
-        tx = ax.text(3, 0.1, str(i0))
-
-        def animate(i):
-            v = np.asarray(modhist["a"].transpose()[i])
-            #vmax = np.max(v)
-            #vmin = np.min(v)
-            im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
-            fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
-            #im.set_clim(vmin, 420)
-            tx.set_text("frame: " + str(i))
-
-
-        plt.title("Temperature distribution at equilibrium")
-
-
-        ani = animation.FuncAnimation(fig=fig, func=animate, frames = len(times), interval=(smoothness*200))
-        plt.show()
-
-"""
-
-    """some_constants = {
-        "AlphaConvection": 50,  # W/m^2K
-        "thickness": 1,  # meter
-        "ECu": 139e9,  # Young's modulus (Pa)
-        "VCu": 0.18,  # Poisson's ratio
-        "AlphaCu": 17e-6,  # thermal expansion coefficient (1/K)
-        "RhoCu": 8890,  # Density (kg/m^3)
-        "CCu": 377,  # Specific heat (J/KgK)
-        "KCu": 323,  # Thermal conductivity (W/mK)
-        "InsidePressure": 1e6,  # Pa
-    }
-
-    # Solve stationary mechanical problem
-    coord, edof, dofs, bdofs, element_markers = MakeMechMesh(NozzleGeom())
-
-    K, DCu, DTi, ex, ey, ep = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants)
-
-    F = np.zeros([np.size(dofs), 1])
-
-    F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants)
-
-    a, r = cfc.solveq(K, F, bc, bc_value)
-
-    # Calculate von mises stress
-    ed = cfc.extract_eldisp(edof, a) # element displacement
-
-    von_mises = []
-
-    for i in range(edof.shape[0]) :
-        if element_markers[i] == MARKER_CuCr :
-            es, et = cfc.plants(ex[i,:], ey[i,:], ep, DCu, ed[i, :])
-        else :
-            es, et = cfc.plants(ex[i,:], ey[i,:], ep, DTi, ed[i, :])
-        von_mises.append(np.sqrt( pow(es[0,0],2) - es[0,0]*es[0,1] + pow(es[0,1],2) + 3*pow(es[0,2],2) ))
-
-    x = 0
-    for i in von_mises:
-        if(i > x):
-            x = i
-    print("biggest von_mises:", x/1e6)
-
-
-    cfv.figure(fig_size=(10, 5))
-    cfv.draw_element_values(
-        von_mises,
-        coord,
-        edof,
-        2,
-        el_type,
-        a,
-        draw_elements=False,
-        draw_undisplaced_mesh=True,
-        title="Effective stress and displacement",
-    )
-    cfv.show_and_wait()"""
+    #Mech(plot=True, temps=temps)
