@@ -502,30 +502,30 @@ def MakeThermBC(F, bdofs, edof, coord, some_constants) :
     if MARKER_TCONST in bdofs.keys():
         bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_TCONST, TCONST, 0)
 
-    if not test :
-        # Add heating BC to inside of rocket
-        for e in edges[MARKER_Inside] :
-            #print(e)
-            x1, y1 = coord[e[0]-1]
-            #print("x1, y1: ", x1, y1)
-            x2, y2 = coord[e[1]-1]
-            #print("x2, y2: ", x2, y2)
-            dx = x1-x2
-            dy = y1-y2
-            l = np.sqrt(dx*dx + dy*dy)
-            #print("l: ", l)
-            F[e[0]-1] += l*some_constants["thickness"]*ChamberHeating/2
-            F[e[1]-1] += l*some_constants["thickness"]*ChamberHeating/2
+    
+    # Add heating BC to inside of rocket
+    for e in edges[MARKER_Inside] :
+        #print(e)
+        x1, y1 = coord[e[0]-1]
+        #print("x1, y1: ", x1, y1)
+        x2, y2 = coord[e[1]-1]
+        #print("x2, y2: ", x2, y2)
+        dx = x1-x2
+        dy = y1-y2
+        l = np.sqrt(dx*dx + dy*dy)
+        #print("l: ", l)
+        F[e[0]-1] += l*some_constants["thickness"]*ChamberHeating/2
+        F[e[1]-1] += l*some_constants["thickness"]*ChamberHeating/2
 
-        # Add cooling BC to outside of nozzle
-        for e in edges[MARKER_ChamberOutside] :
-            x1, y1 = coord[e[0]-1]
-            x2, y2 = coord[e[1]-1]
-            dx = x1-x2
-            dy = y1-y2
-            l = np.sqrt(dx*dx + dy*dy)
-            F[e[0]-1] -= l*some_constants["thickness"]*ChamberCooling/2
-            F[e[1]-1] -= l*some_constants["thickness"]*ChamberCooling/2
+    # Add cooling BC to outside of nozzle
+    for e in edges[MARKER_ChamberOutside] :
+        x1, y1 = coord[e[0]-1]
+        x2, y2 = coord[e[1]-1]
+        dx = x1-x2
+        dy = y1-y2
+        l = np.sqrt(dx*dx + dy*dy)
+        F[e[0]-1] -= l*some_constants["thickness"]*ChamberCooling/2
+        F[e[1]-1] -= l*some_constants["thickness"]*ChamberCooling/2
 
     # Add convecton BC
     KModifier = np.zeros([len(F), len(F)])
