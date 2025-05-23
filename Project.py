@@ -328,15 +328,15 @@ def NozzleGeom() :
 
 def MakeThermTestMesh() :
     coord = np.zeros((9, 2))
-    coord[0] = [-0.005, -0.005]    # Bottom left
-    coord[1] = [0, -0.005]         # Bottom middle
-    coord[2] = [0.005, -0.005]     # Bottom right
-    coord[3] = [-0.005, 0]         # Middle left
-    coord[4] = [0, 0]              # Center
-    coord[5] = [0.005, 0]          # Middle right
-    coord[6] = [-0.005, 0.005]     # Top left
-    coord[7] = [0, 0.005]          # Top middle
-    coord[8] = [0.005, 0.005]      # Top right
+    coord[0] = [0, 0]           # Bottom left
+    coord[1] = [0.005, 0]       # Bottom middle
+    coord[2] = [0.01, 0]        # Bottom right
+    coord[3] = [0, 0.005]       # Middle left
+    coord[4] = [0.005, 0.005]   # Center
+    coord[5] = [0.01, 0.005]    # Middle right
+    coord[6] = [0, 0.01]        # Top left
+    coord[7] = [0.005, 0.01]    # Top middle
+    coord[8] = [0.01, 0.01]     # Top right
 
     dofs = np.zeros((9, 1), dtype=int)
     dofs[0] = [1]
@@ -352,12 +352,12 @@ def MakeThermTestMesh() :
     edof = np.zeros((8, 3), dtype=int)
     edof[0] = [1, 2, 5]
     edof[1] = [2, 3, 5]
-    edof[2] = [1, 5, 4]
-    edof[3] = [3, 6, 5]
-    edof[4] = [4, 5, 7]
-    edof[5] = [7, 5, 8]
-    edof[6] = [8, 5, 9]
-    edof[7] = [6, 9, 5]
+    edof[2] = [3, 6, 5]
+    edof[3] = [6, 9, 5]
+    edof[4] = [9, 8, 5]
+    edof[5] = [8, 7, 5]
+    edof[6] = [7, 4, 5]
+    edof[7] = [4, 1, 5]
 
     #element_markers = np.zeros((8), dtype=int)
     element_markers = [MARKER_CuCr] * 8
@@ -448,8 +448,10 @@ def MakeThermBC(F, bdofs, edof, coord, some_constants) :
         print("df: ", l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2)
         F[e[0]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2 #0.005 * 0.010 * 1000 * 20 / 2 = 5*1*0.01*10 =
         F[e[1]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2
-        KModifier[e[0]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /2
-        KModifier[e[1]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /2
+        KModifier[e[0]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /3
+        KModifier[e[1]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /3
+        KModifier[e[0]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /6
+        KModifier[e[1]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /6
 
     print(F)
     print(KModifier)
@@ -757,6 +759,13 @@ if __name__=="__main__":
         else :
             es, et = cfc.plants(ex[i,:], ey[i,:], ep, DTi, ed[i, :])
         von_mises.append(np.sqrt( pow(es[0,0],2) - es[0,0]*es[0,1] + pow(es[0,1],2) + 3*pow(es[0,2],2) ))
+
+    x = 0
+    for i in von_mises:
+        if(i > x):
+            x = i
+    print("biggest von_mises:", x/1e6)
+
 
     cfv.figure(fig_size=(10, 5))
     cfv.draw_element_values(
