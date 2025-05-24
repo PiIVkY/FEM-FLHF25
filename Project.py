@@ -80,7 +80,7 @@ def test(plot) :
 
     # Solve dynamic thermal problem
     #C = MakeCapacityMatrix(dofs, element_markers)
-    C = MakeCapacityMatrix2(dofs, edof, element_markers, some_constants)
+    C = MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants)
 
     a0 = np.ones((len(dofs), 1)) * some_constants["Tinfty"]
 
@@ -193,6 +193,16 @@ def statTherm(plot) :
 
     # Solve stationary thermal problem
     a, r = cfc.solveq(K, F, bc, bc_value)
+
+    min = 100000
+    max = 0
+
+    for i in a:
+        if i > max:
+            max = i
+        if i < min:
+            min = i
+    print("Stationär maxtemp:", max, "Stationär mintemp:", min)
 
     # Plot solution to steady state problem
     if plot:  # Swich to turn of plotting for thermal problem
@@ -569,27 +579,25 @@ def plotTherm(a, coord, edof) :
 
     plt.show()
 
-def MakeCapacityMatrix(dofs, element_markers, some_constants) -> np.array :
-    C = np.zeros((len(dofs), len(dofs)))
-    for e in dofs:      # I have been a bad boy och itererat över dofsen istället för över elementen!!
-                        # Detta bör dock vara fixat i MakeCapacityMatrix2()
-        for i in e :
-            if element_markers[i] == MARKER_CuCr :
-                C[i-1, i-1] = some_constants["CCu"]
-            if element_markers[i] == MARKER_TiAlloy :
-                C[i-1, i-1] = CTi
-    return C
-
-def MakeCapacityMatrix2(dofs, edof, element_markers, some_constants) :
+def MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants) -> np.array :
     C = np.zeros((len(dofs), len(dofs)))
 
-    for i in range(len(edof)) :
+    for i in range(len(edof)) : 
+        xCord = np.zeros(3)
+        yCord = np.zeros(3)
+        for j in range(len(edof[i])):
+            x, y = coord[edof[i][j]-1]
+            xCord[j] += x
+            yCord[j] += y
         if element_markers[i] == MARKER_CuCr :
-            for d in edof[i]:
-                C[d-1, d-1] = some_constants["CCu"]
-        elif element_markers[i] == MARKER_TiAlloy :
-            for d in edof[i]:
-                C[d-1, d-1] = CTi
+            const = some_constants["thickness"]*some_constants["CCu"]*some_constants["RhoCu"]
+            Ce = plantml(xCord, yCord, const)
+        else:
+            const = some_constants["thickness"]*CTi*RhoTi
+            Ce = plantml(xCord, yCord, const)
+        for k in range(0,3) : 
+            for l in range(0,3) :
+                C[edof[i][k]-1][edof[i][l]-1] += Ce[k][l]
     return C
 
 
