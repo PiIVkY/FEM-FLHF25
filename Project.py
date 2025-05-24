@@ -241,8 +241,7 @@ def dynTherm(plot) :
     F, bc, bc_value, KModifier = MakeThermBC(F, bdofs, edof, coord, some_constants)
     K = K + KModifier  # Update K with changes from convection BC
 
-    C = MakeCapacityMatrix(dofs, element_markers, some_constants)
-    #C = MakeCapacityMatrix2(dofs, element_markers)
+    C = MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants)
 
     a0 = np.ones((len(dofs), 1)) * some_constants["Tinfty"]
 
