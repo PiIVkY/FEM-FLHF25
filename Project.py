@@ -191,6 +191,8 @@ def statTherm(plot) :
     F, bc, bc_value, KModifier = MakeThermBC(F, bdofs, edof, coord, some_constants)
     K = K + KModifier  # Update K with changes from convection BC
 
+    print(K, F, bc, bc_value)
+
     # Solve stationary thermal problem
     a, r = cfc.solveq(K, F, bc, bc_value)
 
@@ -511,50 +513,52 @@ def MakeThermBC(F, bdofs, edof, coord, some_constants) :
     if MARKER_TCONST in bdofs.keys():
         bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_TCONST, TCONST, 0)
 
-    
-    # Add heating BC to inside of rocket
-    for e in edges[MARKER_Inside] :
-        #print(e)
-        x1, y1 = coord[e[0]-1]
-        #print("x1, y1: ", x1, y1)
-        x2, y2 = coord[e[1]-1]
-        #print("x2, y2: ", x2, y2)
-        dx = x1-x2
-        dy = y1-y2
-        l = np.sqrt(dx*dx + dy*dy)
-        #print("l: ", l)
-        F[e[0]-1] += l*some_constants["thickness"]*ChamberHeating/2
-        F[e[1]-1] += l*some_constants["thickness"]*ChamberHeating/2
+    if MARKER_Inside in bdofs.keys():
+        # Add heating BC to inside of rocket
+        for e in edges[MARKER_Inside] :
+            #print(e)
+            x1, y1 = coord[e[0]-1]
+            #print("x1, y1: ", x1, y1)
+            x2, y2 = coord[e[1]-1]
+            #print("x2, y2: ", x2, y2)
+            dx = x1-x2
+            dy = y1-y2
+            l = np.sqrt(dx*dx + dy*dy)
+            #print("l: ", l)
+            F[e[0]-1] += l*some_constants["thickness"]*ChamberHeating/2
+            F[e[1]-1] += l*some_constants["thickness"]*ChamberHeating/2
 
-    # Add cooling BC to outside of nozzle
-    for e in edges[MARKER_ChamberOutside] :
-        x1, y1 = coord[e[0]-1]
-        x2, y2 = coord[e[1]-1]
-        dx = x1-x2
-        dy = y1-y2
-        l = np.sqrt(dx*dx + dy*dy)
-        F[e[0]-1] -= l*some_constants["thickness"]*ChamberCooling/2
-        F[e[1]-1] -= l*some_constants["thickness"]*ChamberCooling/2
+    if MARKER_ChamberOutside in bdofs.keys():
+        # Add cooling BC to outside of nozzle
+        for e in edges[MARKER_ChamberOutside] :
+            x1, y1 = coord[e[0]-1]
+            x2, y2 = coord[e[1]-1]
+            dx = x1-x2
+            dy = y1-y2
+            l = np.sqrt(dx*dx + dy*dy)
+            F[e[0]-1] -= l*some_constants["thickness"]*ChamberCooling/2
+            F[e[1]-1] -= l*some_constants["thickness"]*ChamberCooling/2
 
-    # Add convecton BC
-    KModifier = np.zeros([len(F), len(F)])
-    for e in edges[MARKER_BellOutside] :
-        #print("e: ", e)
-        x1, y1 = coord[e[0]-1]
-        x2, y2 = coord[e[1]-1]
-        dx = x1-x2
-        dy = y1-y2
-        #print("dx, dy: ", dx, dy)
-        l = np.sqrt(dx*dx + dy*dy)
-        #print("l: ", l)
-        #print(l, some_constants["thickness"], some_constants["AlphaConvection"], some_constants["Tinfty"])
-        #print("df: ", l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2)
-        F[e[0]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2 #0.005 * 0.010 * 1000 * 20 / 2 = 5*1*0.01*10 =
-        F[e[1]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2
-        KModifier[e[0]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /3
-        KModifier[e[1]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /3
-        KModifier[e[0]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /6
-        KModifier[e[1]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /6
+    if MARKER_BellOutside in bdofs.keys():
+        # Add convecton BC
+        KModifier = np.zeros([len(F), len(F)])
+        for e in edges[MARKER_BellOutside] :
+            #print("e: ", e)
+            x1, y1 = coord[e[0]-1]
+            x2, y2 = coord[e[1]-1]
+            dx = x1-x2
+            dy = y1-y2
+            #print("dx, dy: ", dx, dy)
+            l = np.sqrt(dx*dx + dy*dy)
+            #print("l: ", l)
+            #print(l, some_constants["thickness"], some_constants["AlphaConvection"], some_constants["Tinfty"])
+            #print("df: ", l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2)
+            F[e[0]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2 #0.005 * 0.010 * 1000 * 20 / 2 = 5*1*0.01*10 =
+            F[e[1]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2
+            KModifier[e[0]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /3
+            KModifier[e[1]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /3
+            KModifier[e[0]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /6
+            KModifier[e[1]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /6
 
     #print(F)
     #print(KModifier)
@@ -581,7 +585,7 @@ def plotTherm(a, coord, edof) :
 def MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants) -> np.array :
     C = np.zeros((len(dofs), len(dofs)))
 
-    for i in range(len(edof)) : 
+    for i in range(len(edof)) :
         xCord = np.zeros(3)
         yCord = np.zeros(3)
         for j in range(len(edof[i])):
@@ -681,7 +685,7 @@ def MakeMechTestMesh() :
 
 def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants) :
     # Assemble plane strain matrix
-    ptype = 1
+    ptype = 2
     ep = np.array([ptype, some_constants["thickness"]])
     n_dofs = np.size(dofs)
     ex, ey = cfc.coordxtr(edof, coord, dofs)
@@ -753,9 +757,9 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants) :
 
 
 if __name__=="__main__":
-    #test(plot=True)
+    test(plot=True)
 
-    temps = statTherm(True)
+    #temps = statTherm(True)
 
     #dynTherm(True)
 
