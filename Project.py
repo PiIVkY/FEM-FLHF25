@@ -191,8 +191,6 @@ def statTherm(plot) :
     F, bc, bc_value, KModifier = MakeThermBC(F, bdofs, edof, coord, some_constants)
     K = K + KModifier  # Update K with changes from convection BC
 
-    print(K, F, bc, bc_value)
-
     # Solve stationary thermal problem
     a, r = cfc.solveq(K, F, bc, bc_value)
 
@@ -305,7 +303,7 @@ def Mech(plot, temps) :
 
     F = np.zeros([np.size(dofs), 1])
 
-    F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants)
+    F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, temps)
 
     a, r = cfc.solveq(K, F, bc, bc_value)
 
@@ -327,20 +325,21 @@ def Mech(plot, temps) :
             x = i
     print("biggest von_mises:", x / 1e6)
 
-    cfv.figure(fig_size=(10, 5))
-    cfv.draw_element_values(
-        von_mises,
-        coord,
-        edof,
-        2,
-        el_type,
-        a,
-        draw_elements=False,
-        draw_undisplaced_mesh=True,
-        title="Effective stress and displacement",
-        magnfac=10.0,
-    )
-    cfv.show_and_wait()
+    if print :
+        cfv.figure(fig_size=(10, 5))
+        cfv.draw_element_values(
+            von_mises,
+            coord,
+            edof,
+            2,
+            el_type,
+            a,
+            draw_elements=False,
+            draw_undisplaced_mesh=True,
+            title="Effective stress and displacement",
+            magnfac=10.0,
+        )
+        cfv.show_and_wait()
 
 
 
@@ -701,7 +700,7 @@ def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_consta
 
     return K, DCu, DTi, ex, ey, ep
 
-def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants) :
+def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, temps) :
     bnods = {key: np.divide(bdofs[key][1::2], 2) for key in bdofs}
     enods = edof[:,1::2]/2
     edges = nodesToEdges(bnods, enods)                                               # Nodes to edges is knas. Använder noder istället för dofs
@@ -749,18 +748,46 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants) :
 
         F[dofs[int(e[1] - 1)][0] - 1] += fx / 2
         F[dofs[int(e[1] - 1)][1] - 1] += fy / 2
-    print(F)
-    print(bc, bc_value)
+    #print(F)
+    #print(bc, bc_value)
+
+    ptype = 2
+    ep = np.array([ptype, some_constants["thickness"]])
+    n_dofs = np.size(dofs)
+    ex, ey = cfc.coordxtr(edof, coord, dofs)
+    preE0Ti = np.array([[AlphaTi], [AlphaTi], [0]])
+    preE0Cu = np.array([[some_constants["AlphaCu"]], [some_constants["AlphaCu"]], [0]])
+    DCu = cfc.hooke(1, some_constants["ECu"], some_constants["VCu"])
+    DTi = cfc.hooke(1, ETi, VTi)
+    Fini = np.zeros([n_dofs, 1])
+    es = np.zeros([len(edof), 3])
+
+    for i in range(len(edof)):
+        #Average temp of element
+        dof = edof[i]
+        temp = (temps[int(dof[1]/2-1)] + temps[int(dof[3]/2-1)] + temps[int(dof[5]/2-1)])/3
+
+        if element_markers[i] == MARKER_TiAlloy :
+            es[i] = np.transpose(np.dot(DTi,preE0Ti)*temp)
+        if element_markers[i] == MARKER_CuCr :
+            es[i] = np.transpose(np.dot(DCu,preE0Cu)*temp)
+
+    for i in range(len(ex)) :
+        Fe = cfc.plantf(ex[i], ey[i], ep, np.array([es[i]]))
+        print(Fe)
+        print(np.shape(F))
+        print(np.shape(edof))
+        F = cfc.assem(edof, np.zeros((len(ex)*2, len(ex)*2)), np.array([[0]]), F, Fe)
 
     return F, bc, bc_value
 
 
 
 if __name__=="__main__":
-    test(plot=True)
+    #test(plot=True)
 
-    #temps = statTherm(True)
+    temps = statTherm(plot=False)
 
-    #dynTherm(True)
+    #dynTherm(plot=True)
 
-    #Mech(plot=True, temps=temps)
+    Mech(plot=True, temps=temps)
