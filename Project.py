@@ -56,6 +56,7 @@ def test(plot) :
         "VCu" : 0.3,
         "Tinfty" : 20,  # C
         "InsidePressure" : -100e6,  # Pa
+        "AlphaCu" : 0 # No thermal stress in testcase
     }
 
     coord, edof, dofs, bdofs, element_markers = MakeThermTestMesh()
@@ -131,7 +132,7 @@ def test(plot) :
 
     F = np.zeros([np.size(dofs), 1])
 
-    F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants)
+    F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, a)
 
     F = F*-1
 
@@ -839,7 +840,7 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
 
     slask = np.zeros((n_dofs, n_dofs))
     slaske = [[0]]
-    F = np.zeros((len(F), 1))
+    #F = np.zeros((len(F), 1)) # Uncomment to show only thermal stresses
     es = np.array([[0, 0, 0]])
 
     print(len(edof))
@@ -871,10 +872,10 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
 
 
 if __name__=="__main__":
-    #test(plot=True)
+    test(plot=True)
 
-    temps = statTherm(plot=False)
+    temps = statTherm(plot=True)
 
-    #dynTherm(plot=True)
+    dynTherm(plot=True)
 
     Mech(plot=True, temps=temps)
