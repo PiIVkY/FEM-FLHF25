@@ -260,23 +260,23 @@ def dynTherm(plot) :
 
     modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
 
-    Tmax = np.empty(len(times))
-    Tmin = np.empty(len(times))
-    for i in range(len(times)):
-        Tmax[i] = np.max(modhist['a'].transpose()[i])
-        Tmin[i] = np.min(modhist['a'].transpose()[i])
-
-    xArr = np.arange(0, tottime, int(tottime/len(times)))
-
-    plt.plot(xArr, Tmax, label = "Maximum temperature", color = 'r')
-    plt.plot(xArr, Tmin, label = "Minimum temperature", color = 'b')
-    plt.xlabel("Time [s]")
-    plt.ylabel("Temperature [K]")
-    plt.legend()
-    plt.title("Maximum and minimum temperature in the rocket nozzle for the first hour")
-    plt.show()
-
     if plot:
+        Tmax = np.empty(len(times))
+        Tmin = np.empty(len(times))
+        for i in range(len(times)):
+            Tmax[i] = np.max(modhist['a'].transpose()[i])
+            Tmin[i] = np.min(modhist['a'].transpose()[i])
+
+        xArr = np.arange(0, tottime, int(tottime/len(times)))
+
+        plt.plot(xArr, Tmax, label = "Maximum temperature", color = 'r')
+        plt.plot(xArr, Tmin, label = "Minimum temperature", color = 'b')
+        plt.xlabel("Time [s]")
+        plt.ylabel("Temperature [K]")
+        plt.legend()
+        plt.title("Maximum and minimum temperature in the rocket nozzle for the first hour")
+        plt.show()
+        
         UNIT = 1 / 2.54
         wcm, hcm = 35, 10
         fig, (ax, cbax) = plt.subplots( 1, 2, width_ratios=[10, 1], figsize=(wcm * UNIT, hcm * UNIT))
