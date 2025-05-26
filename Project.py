@@ -276,7 +276,7 @@ def dynTherm(plot) :
         plt.legend()
         plt.title("Maximum and minimum temperature in the rocket nozzle for the first hour")
         plt.show()
-        
+
         UNIT = 1 / 2.54
         wcm, hcm = 35, 10
         fig, (ax, cbax) = plt.subplots( 1, 2, width_ratios=[10, 1], figsize=(wcm * UNIT, hcm * UNIT))
@@ -316,6 +316,7 @@ def Mech(plot, temps) :
         "CCu": 377,  # Specific heat (J/KgK)
         "KCu": 323,  # Thermal conductivity (W/mK)
         "InsidePressure": 1e6,  # Pa
+        "Tinfty": 293,  # K
     }
 
     # Solve stationary mechanical problem
@@ -361,7 +362,7 @@ def Mech(plot, temps) :
             draw_elements=False,
             draw_undisplaced_mesh=True,
             title="Effective stress and displacement",
-            magnfac=10.0,
+            magnfac=1.0,
         )
         cfv.show_and_wait()
 
@@ -419,6 +420,27 @@ def plantml(ex: np.array, ey: np.array, s: float):
             [g3[i]*g1[i], g3[i]*g2[i], g3[i]**2]])
     Me *= A*s
     return Me
+
+def customPlantf(ex, ey, ep, es) :
+    ptype, t = ep
+
+    A = 0.5 * np.linalg.det(np.matrix([
+        [1, ex[0], ey[0]],
+        [1, ex[1], ey[1]],
+        [1, ex[2], ey[2]]
+    ]))
+
+    B = np.matrix([
+        [0, 1, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 1],
+        [0, 0, 1, 0, 1, 0]
+    ])
+
+    stress = np.asmatrix(es)
+
+    ef = (A * t * B.T * stress.T).T
+
+    return np.reshape(np.asarray(ef), (6, 1))
 
 def NozzleGeom() :
     g = cfg.geometry()
@@ -708,12 +730,12 @@ def MakeMechTestMesh() :
 
     return (coord, edof, dofs, bdofs, element_markers)
 
-def plotSurfaceNormals(bdofs, edof, coord) : 
+def plotSurfaceNormals(bdofs, edof, coord) :
     bnods = {key: np.divide(bdofs[key][1::2], 2) for key in bdofs}
     enods = edof[:,1::2]/2
     edges = nodesToEdges(bnods, enods)
 
-    for i in range(len(edges[MARKER_Inside])) : 
+    for i in range(len(edges[MARKER_Inside])) :
         x1, y1 = coord[int(edges[MARKER_Inside][i][0]-1)]
         x2, y2 = coord[int(edges[MARKER_Inside][i][1]-1)]
         vect = [(x2-x1), (y2-y1), 0]
@@ -721,11 +743,11 @@ def plotSurfaceNormals(bdofs, edof, coord) :
             normalVect = np.cross(vect, [0, 0, 1])
         else :
             normalVect = np.cross(vect, [0, 0, -1])
-        
+
         normedVect = [normalVect[0]/np.sqrt(normalVect[0]**2+normalVect[1]**2), normalVect[1]/np.sqrt(normalVect[0]**2+normalVect[1]**2)]
-        
+
         midpoint = [(x1+x2)/2.0, (y1+y2)/2.0]
-        
+
         plot_scale = 0.1
         plt.quiver(midpoint[0], midpoint[1], normedVect[0]*plot_scale, normedVect[1]*plot_scale, color = 'r')
 
@@ -807,34 +829,43 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
     #print(F)
     #print(bc, bc_value)
 
+
     ptype = 2
     ep = np.array([ptype, some_constants["thickness"]])
     n_dofs = np.size(dofs)
     ex, ey = cfc.coordxtr(edof, coord, dofs)
-    preE0Ti = np.array([[AlphaTi], [AlphaTi], [0]])
-    preE0Cu = np.array([[some_constants["AlphaCu"]], [some_constants["AlphaCu"]], [0]])
-    DCu = cfc.hooke(1, some_constants["ECu"], some_constants["VCu"])
-    DTi = cfc.hooke(1, ETi, VTi)
-    Fini = np.zeros([n_dofs, 1])
-    es = np.zeros([len(edof), 3])
+    preSigTi = np.array([[1, 1, 0]]) * AlphaTi * ETi / (1-2*VTi)
+    preSigCu = np.array([[1, 1, 0]]) * some_constants["AlphaCu"] * some_constants["ECu"] / (1 - 2 * some_constants["VCu"])
+
+    slask = np.zeros((n_dofs, n_dofs))
+    slaske = [[0]]
+    F = np.zeros((len(F), 1))
+    es = np.array([[0, 0, 0]])
+
+    print(len(edof))
 
     for i in range(len(edof)):
         #Average temp of element
         dof = edof[i]
         temp = (temps[int(dof[1]/2-1)] + temps[int(dof[3]/2-1)] + temps[int(dof[5]/2-1)])/3
+        temp = temp[0, 0] - some_constants["Tinfty"]
+
+        if i%25 == 0 :
+            print(i)
+            pos = [coord[int(dof[1] / 2 - 1)], coord[int(dof[3] / 2 - 1)], coord[int(dof[5] / 2 - 1)]]
+            print("temp: ", temp+293, " at ", pos)
 
         if element_markers[i] == MARKER_TiAlloy :
-            es[i] = np.transpose(np.dot(DTi,preE0Ti)*temp)
-        if element_markers[i] == MARKER_CuCr :
-            es[i] = np.transpose(np.dot(DCu,preE0Cu)*temp)
+            es[0] = preSigTi*temp*1e-3
 
-    for i in range(len(ex)) :
-        Fe = cfc.plantf(ex[i], ey[i], ep, np.array([es[i]]))
-        print(Fe)
-        #print(np.shape(F))
-        #print(np.shape(edof))
-        F = cfc.assem(edof, np.zeros((len(ex)*2, len(ex)*2)), np.array([[0]]), F, Fe)
+        else :
+            es[0] = preSigCu*temp*1e-3
 
+        Fe = customPlantf(ex[i], ey[i], ep, es)
+        #print(Fe)
+        slask, F = cfc.assem(edof, slask, slaske, F, Fe)
+
+    print(F)
     return F, bc, bc_value
 
 
@@ -842,8 +873,8 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
 if __name__=="__main__":
     #test(plot=True)
 
-    temps = statTherm(plot=True)
+    temps = statTherm(plot=False)
 
-    dynTherm(plot=True)
+    #dynTherm(plot=True)
 
     Mech(plot=True, temps=temps)
