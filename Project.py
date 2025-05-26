@@ -260,6 +260,20 @@ def dynTherm(plot) :
 
     modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
 
+    vmax = np.empty(len(times))
+    vmin = np.empty(len(times))
+    for i in range(len(times)):
+        vmax[i] = np.max(modhist['a'].transpose()[i])
+        vmin[i] = np.min(modhist['a'].transpose()[i])
+
+    xArr = np.arange(0, tottime, 50)
+
+    plt.plot(xArr, vmax, label = "vmax")
+    plt.plot(xArr, vmin, label = "vmin")
+    plt.legend()
+    plt.title("Test!")
+    plt.show()
+
     if plot:
         UNIT = 1 / 2.54
         wcm, hcm = 35, 10
@@ -277,8 +291,6 @@ def dynTherm(plot) :
 
         def animate(i) :
             v = np.asarray(modhist["a"].transpose()[i])
-            #vmax = np.max(v)
-            #vmin = np.min(v)
             im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
             fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
             #im.set_clim(vmin, 420)
@@ -826,8 +838,8 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
 if __name__=="__main__":
     #test(plot=True)
 
-    temps = statTherm(plot=False)
+    #temps = statTherm(plot=False)
 
-    #dynTherm(plot=True)
+    dynTherm(plot=True)
 
-    Mech(plot=True, temps=temps)
+    #Mech(plot=True, temps=temps)
