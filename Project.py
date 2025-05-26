@@ -260,18 +260,20 @@ def dynTherm(plot) :
 
     modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
 
-    vmax = np.empty(len(times))
-    vmin = np.empty(len(times))
+    Tmax = np.empty(len(times))
+    Tmin = np.empty(len(times))
     for i in range(len(times)):
-        vmax[i] = np.max(modhist['a'].transpose()[i])
-        vmin[i] = np.min(modhist['a'].transpose()[i])
+        Tmax[i] = np.max(modhist['a'].transpose()[i])
+        Tmin[i] = np.min(modhist['a'].transpose()[i])
 
-    xArr = np.arange(0, tottime, 50)
+    xArr = np.arange(0, tottime, int(tottime/len(times)))
 
-    plt.plot(xArr, vmax, label = "vmax")
-    plt.plot(xArr, vmin, label = "vmin")
+    plt.plot(xArr, Tmax, label = "Maximum temperature", color = 'r')
+    plt.plot(xArr, Tmin, label = "Minimum temperature", color = 'b')
+    plt.xlabel("Time [s]")
+    plt.ylabel("Temperature [K]")
     plt.legend()
-    plt.title("Test!")
+    plt.title("Maximum and minimum temperature in the rocket nozzle for the first hour")
     plt.show()
 
     if plot:
