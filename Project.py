@@ -299,6 +299,8 @@ def Mech(plot, temps) :
     # Solve stationary mechanical problem
     coord, edof, dofs, bdofs, element_markers = MakeMechMesh(NozzleGeom())
 
+    plotSurfaceNormals(bdofs, edof, coord)
+
     K, DCu, DTi, ex, ey, ep = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants)
 
     F = np.zeros([np.size(dofs), 1])
@@ -682,6 +684,34 @@ def MakeMechTestMesh() :
 
     return (coord, edof, dofs, bdofs, element_markers)
 
+def plotSurfaceNormals(bdofs, edof, coord) : 
+    bnods = {key: np.divide(bdofs[key][1::2], 2) for key in bdofs}
+    enods = edof[:,1::2]/2
+    edges = nodesToEdges(bnods, enods)
+
+    for i in range(len(edges[MARKER_Inside])) : 
+        x1, y1 = coord[int(edges[MARKER_Inside][i][0]-1)]
+        x2, y2 = coord[int(edges[MARKER_Inside][i][1]-1)]
+        vect = [(x2-x1), (y2-y1), 0]
+        if(np.sqrt(x2*x2 + y2*y2) > np.sqrt(x1*x1 + y1*y1)) :
+            normalVect = np.cross(vect, [0, 0, 1])
+        else :
+            normalVect = np.cross(vect, [0, 0, -1])
+        
+        normedVect = [normalVect[0]/np.sqrt(normalVect[0]**2+normalVect[1]**2), normalVect[1]/np.sqrt(normalVect[0]**2+normalVect[1]**2)]
+        
+        midpoint = [(x1+x2)/2.0, (y1+y2)/2.0]
+        
+        plot_scale = 0.1
+        plt.quiver(midpoint[0], midpoint[1], normedVect[0]*plot_scale, normedVect[1]*plot_scale, color = 'r')
+
+    cfv.draw_geometry(
+            NozzleGeom(),
+            label_curves=True,
+        )
+    plt.title("Surface normals for the inside of the rocket nozzle")
+    plt.show()
+
 def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants) :
     # Assemble plane strain matrix
     ptype = 2
@@ -775,8 +805,8 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
     for i in range(len(ex)) :
         Fe = cfc.plantf(ex[i], ey[i], ep, np.array([es[i]]))
         print(Fe)
-        print(np.shape(F))
-        print(np.shape(edof))
+        #print(np.shape(F))
+        #print(np.shape(edof))
         F = cfc.assem(edof, np.zeros((len(ex)*2, len(ex)*2)), np.array([[0]]), F, Fe)
 
     return F, bc, bc_value
