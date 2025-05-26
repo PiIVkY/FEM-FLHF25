@@ -731,9 +731,11 @@ def plotSurfaceNormals(bdofs, edof, coord) :
 
     cfv.draw_geometry(
             NozzleGeom(),
-            label_curves=True,
+            label_curves=False,
         )
     plt.title("Surface normals for the inside of the rocket nozzle")
+    plt.xlabel("x-coordinate [m]")
+    plt.ylabel("y-coordinate [m]")
     plt.show()
 
 def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants) :
