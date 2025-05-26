@@ -196,13 +196,21 @@ def statTherm(plot) :
 
     min = 100000
     max = 0
+    diff = 0
+    TDiff = 293
 
-    for i in a:
-        if i > max:
-            max = i
-        if i < min:
-            min = i
-    print("Stationär maxtemp:", max, "Stationär mintemp:", min)
+    for i in range(len(a)):
+        if a[i] > max:
+            max = a[i]
+            maxcord = coord[i]
+        if a[i] < min:
+            min = a[i]
+            mincord = coord[i]
+        if a[i] - TDiff > diff:
+            diff = a[i] - TDiff
+            diffcord = coord[i]
+    print("Stationär maxtemp:", max, " på plats ", maxcord, "Stationär mintemp:", min, " på plats ", mincord)
+    print("Störst temperaturskillnad", diff, " på plats ", diffcord)
 
     # Plot solution to steady state problem
     if plot:  # Swich to turn of plotting for thermal problem
@@ -580,6 +588,8 @@ def plotTherm(a, coord, edof) :
 
     fig.colorbar(tri, ax=ax, label='Temperature [K]', format=fmt)
     plt.title("Temperature distribution at equilibrium")
+    plt.xlabel("x-coordinate [m]")
+    plt.ylabel("y-coordinate [m]")
 
     plt.show()
 
