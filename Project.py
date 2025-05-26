@@ -842,8 +842,8 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
 if __name__=="__main__":
     #test(plot=True)
 
-    #temps = statTherm(plot=False)
+    temps = statTherm(plot=True)
 
     dynTherm(plot=True)
 
-    #Mech(plot=True, temps=temps)
+    Mech(plot=True, temps=temps)
