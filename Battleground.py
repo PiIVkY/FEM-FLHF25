@@ -85,11 +85,10 @@ def customFAssm(edof, f, fe) :
     return f
 
 def customHooke(E, v) -> np.matrix:
-    D = E * np.matrix(
-        [[1-v, v, 0],
-         [v, 1-v, 0],
-         [0, 0, (1 - 2 * v) / 2]]
-    ) / ((1 + v) * (1 - 2 * v))
+    D = E * np.array([[1-v, v, 0],
+                       [v, 1-v, 0],
+                       [0, 0, (1 - 2 * v) / 2]]
+                      ) / ((1 + v) * (1 - 2 * v))
     return D
 
 if __name__=="__main__":
@@ -104,8 +103,6 @@ if __name__=="__main__":
     ex = [0, 1, 0]
     ey = [0, 0, 1]
     F = np.zeros((6,1))
-    print(customHooke(ETi, VTi))
-    print(D_matrix(ETi, VTi))
 
     if False:
         print("Malte och Sixtens kod: ")
