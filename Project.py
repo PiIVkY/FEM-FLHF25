@@ -449,7 +449,7 @@ def plantml(ex: np.array, ey: np.array, s: float):
     return Me
 
 def customHooke(E, v) -> np.matrix:
-    D = E * np.matrix(
+    D = E * np.array(
         [[1-v, v, 0],
          [v, 1-v, 0],
          [0, 0, (1 - 2 * v) / 2]]
@@ -858,11 +858,7 @@ def MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers
     ep = np.array([ptype, some_constants["thickness"]])
     n_dofs = np.size(dofs)
     ex, ey = cfc.coordxtr(edof, coord, dofs)
-    preSigTi = np.array([[1, 1, 0]]) * AlphaTi * ETi / (1 - 2 * VTi)
-    preSigCu = np.array([[1, 1, 0]]) * some_constants["AlphaCu"] * some_constants["ECu"] / (1 - 2 * some_constants["VCu"])
 
-    slask = np.zeros((n_dofs, n_dofs))
-    slaske = [[0]]
     es = np.array([[0, 0, 0]])
 
     print(len(edof))  # Leave enabled since it shows how roughly how long it will take
@@ -870,33 +866,31 @@ def MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers
     for i in range(len(edof)):
         if 1 in edof[i] :
             print("Hello!")
-        # Average temp of element
+
         dof = edof[i]
+
+        # Average temp of element
         temp = (temps[int(dof[1] / 2 - 1)] + temps[int(dof[3] / 2 - 1)] + temps[int(dof[5] / 2 - 1)]) / 3
         temp = temp[0, 0] - some_constants["Tinfty"]
 
-        if i & (2**6-1) == 0:   # borde nog använda modulo operatorn (%) istället för bitwise and (&). Försökte få for-loopen att gå snabbare men detta sparar nog knappt någon tid
+        if i % 100 == 0:
             print(i)  # Leave enabled since it's a nice progress bar
-            #pos = np.array([coord[int(dof[1] / 2 - 1)], coord[int(dof[3] / 2 - 1)], coord[int(dof[5] / 2 - 1)]]).transpose()
-            #print("temp: ", temp+293, " at ", pos)
 
         if element_markers[i] == MARKER_TiAlloy:
-            #es[0] = preSigTi * temp # Deprecated, ersatt av snippet från malte o sixten
             # Dessa två rader är lånade från malte o sixten för att se om de funkar bättre
             epsilon_deltaT = AlphaTi * temp * np.array([[1], [1], [0]])
             es = customHooke(ETi, VTi) @ epsilon_deltaT  # @ Ser läskig ut men är bara matrismultiplikation
             es = es.T  # För att slippa transponera senare i koden
 
         else:
-            #es[0] = preSigCu * temp# Deprecated, ersatt av snippet från malte o sixten
             # Dessa två rader är lånade från malte o sixten för att se om de funkar bättre
             epsilon_deltaT =  some_constants["AlphaCu"] * temp * np.array([[1], [1], [0]])
             es = customHooke(some_constants["ECu"], some_constants["VCu"]) @ epsilon_deltaT  # @ Ser läskig ut men är bara matrismultiplikation
             es = es.T  # För att slippa transponera senare i koden
 
         Fe = cfc.plantf(ex[i], ey[i], ep, es)
-        # print(Fe)
-        F = customFAssm(edof, F, Fe)    # Only the parts about the F-matrix in hopes of the for-loop going a little faster
+
+        F = customFAssm(edof, F, Fe)    # Only assemble the F-matrix in hopes of the for-loop going a little faster
 
     return F
 
