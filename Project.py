@@ -16,7 +16,7 @@ import numpy as np
 
 
 # Mesh data
-el_sizef, el_type= 0.08, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
+el_sizef, el_type= 0.04, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
 
 mesh_dir = "./"
 
@@ -306,6 +306,8 @@ def dynTherm(plot) :
         ani = animation.FuncAnimation(fig=fig, func=animate, frames = len(times), interval=(smoothness*200))
         plt.show()
 
+    return np.matrix([modhist["a"][:,-1]]).transpose()
+
 def Mech(plot, temps) :
     some_constants = {
         "AlphaConvection": 50,  # W/m^2K
@@ -323,13 +325,18 @@ def Mech(plot, temps) :
     # Solve stationary mechanical problem
     coord, edof, dofs, bdofs, element_markers = MakeMechMesh(NozzleGeom())
 
-    plotSurfaceNormals(bdofs, edof, coord)
+    if plot :
+        plotSurfaceNormals(bdofs, edof, coord)
 
     K, DCu, DTi, ex, ey, ep = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants)
 
     F = np.zeros([np.size(dofs), 1])
 
     F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, temps)
+
+    # F = np.zeros((len(F), 1)) # Uncomment to show only thermal stresses
+
+    F, ez = MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers, temps)
 
     a, r = cfc.solveq(K, F, bc, bc_value)
 
@@ -339,19 +346,28 @@ def Mech(plot, temps) :
     von_mises = []
 
     for i in range(edof.shape[0]):
+        dof = edof[i]
+        temp = (temps[int(dof[1] / 2 - 1)] + temps[int(dof[3] / 2 - 1)] + temps[int(dof[5] / 2 - 1)]) / 3
+        temp = temp[0, 0] - some_constants["Tinfty"]
+
         if element_markers[i] == MARKER_CuCr:
             es, et = cfc.plants(ex[i, :], ey[i, :], ep, DCu, ed[i, :])
+            ez = some_constants["VCu"]*(es[0,0] + es[0,1]) - some_constants["AlphaCu"] * some_constants["ECu"] * temp
         else:
             es, et = cfc.plants(ex[i, :], ey[i, :], ep, DTi, ed[i, :])
-        von_mises.append(np.sqrt(pow(es[0, 0], 2) - es[0, 0] * es[0, 1] + pow(es[0, 1], 2) + 3 * pow(es[0, 2], 2)))
+            ez = VTi * (es[0, 0] + es[0, 1]) - AlphaTi * ETi * temp
+        ex =  es[0,0]
+        ey =  es[0,1]
+        txy = es[0,2]
+        von_mises.append(np.sqrt(ex**2 + ey**2 + ez[i]**2 - ex*ey - ex*ez[i] - ey*ez[i] + 3 * txy**2))
 
     x = 0
     for i in von_mises:
         if (i > x):
             x = i
-    print("biggest von_mises:", x / 1e6)
+    print("biggest von_mises:", x / 1e6, " MPa")
 
-    if print :
+    if plot :
         cfv.figure(fig_size=(10, 5))
         cfv.draw_element_values(
             von_mises,
@@ -366,7 +382,6 @@ def Mech(plot, temps) :
             magnfac=1.0,
         )
         cfv.show_and_wait()
-
 
 
 
@@ -442,6 +457,14 @@ def customPlantf(ex, ey, ep, es) :
     ef = (A * t * B.T * stress.T).T
 
     return np.reshape(np.asarray(ef), (6, 1))
+
+def customFAssm(edof, f, fe) :
+    for row in edof:
+        idx = row - 1
+        f[np.ix_(idx)] = f[np.ix_(idx)] + fe
+    return f
+
+
 
 def NozzleGeom() :
     g = cfg.geometry()
@@ -652,6 +675,7 @@ def MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants) -> np
     return C
 
 
+
 def MakeMechMesh(geom) :
     mesh = cfm.GmshMeshGenerator(geom, mesh_dir=mesh_dir)
 
@@ -790,7 +814,7 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
     if MARKER_QN_0 in bdofs.keys():
         bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_QN_0, 0.0, 2)
     if MARKER_TCONST in bdofs.keys():
-        cfu.applyforce(bdofs, F, MARKER_TCONST, -150e6*some_constants["thickness"]*0.005/2, 2) # pressure = 100 MPa, thickness = 0.01, sidelenght = 0.01 => 10 KN
+        cfu.applyforce(bdofs, F, MARKER_TCONST, -150e6*some_constants["thickness"]*0.005/2, 2) # pressure = 150 MPa, thickness = 0.01, sidelenght = 0.01 => 10 KN
 
 
     # Calculate force from pressure inside chamber
@@ -811,7 +835,6 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
             if e[0] in t and e[1] in t :
                 for i in t :
                     if i != e[0] and i != e[1] :
-                        inside = i
                         x3, y3 = coord[int(i-1)]
                         dx = x3 - x1
                         dy = y3 - y1
@@ -831,6 +854,7 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
     #print(bc, bc_value)
 
 
+    """#Make initial stress
     ptype = 2
     ep = np.array([ptype, some_constants["thickness"]])
     n_dofs = np.size(dofs)
@@ -843,7 +867,7 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
     #F = np.zeros((len(F), 1)) # Uncomment to show only thermal stresses
     es = np.array([[0, 0, 0]])
 
-    print(len(edof))
+    print(len(edof))    #Leave enabled since it shows how roughly how long it will take
 
     for i in range(len(edof)):
         #Average temp of element
@@ -852,9 +876,9 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
         temp = temp[0, 0] - some_constants["Tinfty"]
 
         if i%25 == 0 :
-            print(i)
+            print(i)    #Leave enabled since it's a nice progress bar
             pos = [coord[int(dof[1] / 2 - 1)], coord[int(dof[3] / 2 - 1)], coord[int(dof[5] / 2 - 1)]]
-            print("temp: ", temp+293, " at ", pos)
+            #print("temp: ", temp+293, " at ", pos)
 
         if element_markers[i] == MARKER_TiAlloy :
             es[0] = preSigTi*temp*1e-3
@@ -866,16 +890,56 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
         #print(Fe)
         slask, F = cfc.assem(edof, slask, slaske, F, Fe)
 
-    print(F)
+    #print(F)"""
     return F, bc, bc_value
+
+def MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers, temps) :
+    ptype = 2
+    ep = np.array([ptype, some_constants["thickness"]])
+    n_dofs = np.size(dofs)
+    ex, ey = cfc.coordxtr(edof, coord, dofs)
+    preSigTi = np.array([[1, 1, 0]]) * AlphaTi * ETi / (1 - 2 * VTi)
+    preSigCu = np.array([[1, 1, 0]]) * some_constants["AlphaCu"] * some_constants["ECu"] / (1 - 2 * some_constants["VCu"])
+
+    slask = np.zeros((n_dofs, n_dofs))
+    slaske = [[0]]
+    es = np.array([[0, 0, 0]])
+
+    print(len(edof))  # Leave enabled since it shows how roughly how long it will take
+
+    for i in range(len(edof)):
+        if 0 in edof[i] :
+            print("Hello!")
+        # Average temp of element
+        dof = edof[i]
+        temp = (temps[int(dof[1] / 2 - 1)] + temps[int(dof[3] / 2 - 1)] + temps[int(dof[5] / 2 - 1)]) / 3
+        temp = temp[0, 0] - some_constants["Tinfty"]
+
+        if i & (2**6-1) == 0:
+            print(i)  # Leave enabled since it's a nice progress bar
+            pos = np.array([coord[int(dof[1] / 2 - 1)], coord[int(dof[3] / 2 - 1)], coord[int(dof[5] / 2 - 1)]]).transpose()
+            print("temp: ", temp+293, " at ", pos)
+
+        if element_markers[i] == MARKER_TiAlloy:
+            es[0] = preSigTi * temp
+
+        else:
+            es[0] = preSigCu * temp
+
+        Fe = cfc.plantf(ex[i], ey[i], ep, es)
+        # print(Fe)
+        F = customFAssm(edof, F, Fe)
+
+    # print(F)
+    return F
 
 
 
 if __name__=="__main__":
-    test(plot=True)
+    #test(plot=False)
 
-    temps = statTherm(plot=True)
+    statTherm(plot=False)
 
-    dynTherm(plot=True)
+    temps = dynTherm(plot=False)
 
-    Mech(plot=True, temps=temps)
+    Mech(plot=False, temps=temps)
