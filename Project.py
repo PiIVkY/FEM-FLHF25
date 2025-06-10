@@ -259,7 +259,9 @@ def dynTherm(plot) :
     smoothness = 0.5
     times = [100 * i * smoothness for i in range(int(tottime / (100 * smoothness)))]
 
+    print("Starting calculations...")
     modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
+    print("Done calculating")
 
     if plot:
         Tmax = np.empty(len(times))
@@ -352,14 +354,14 @@ def Mech(plot, temps) :
 
         if element_markers[i] == MARKER_CuCr:
             es, et = cfc.plants(ex[i, :], ey[i, :], ep, DCu, ed[i, :])
-            ez = some_constants["VCu"]*(es[0,0] + es[0,1]) - some_constants["AlphaCu"] * some_constants["ECu"] * temp
+            ezz = some_constants["VCu"]*(es[0,0] + es[0,1]) - some_constants["AlphaCu"] * some_constants["ECu"] * temp
         else:
             es, et = cfc.plants(ex[i, :], ey[i, :], ep, DTi, ed[i, :])
-            ez = VTi * (es[0, 0] + es[0, 1]) - AlphaTi * ETi * temp
-        ex =  es[0,0]
-        ey =  es[0,1]
+            ezz = VTi * (es[0, 0] + es[0, 1]) - AlphaTi * ETi * temp
+        exx =  es[0,0]
+        eyy =  es[0,1]
         txy = es[0,2]
-        von_mises.append(np.sqrt(ex**2 + ey**2 + ez[i]**2 - ex*ey - ex*ez[i] - ey*ez[i] + 3 * txy**2))
+        von_mises.append(np.sqrt(exx*exx + eyy*eyy + ezz*ezz - exx*eyy - exx*ezz - eyy*ezz + 3 * txy*txy))
 
     x = 0
     for i in von_mises:
@@ -908,14 +910,14 @@ def MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers
     print(len(edof))  # Leave enabled since it shows how roughly how long it will take
 
     for i in range(len(edof)):
-        if 0 in edof[i] :
+        if 1 in edof[i] :
             print("Hello!")
         # Average temp of element
         dof = edof[i]
         temp = (temps[int(dof[1] / 2 - 1)] + temps[int(dof[3] / 2 - 1)] + temps[int(dof[5] / 2 - 1)]) / 3
         temp = temp[0, 0] - some_constants["Tinfty"]
 
-        if i & (2**6-1) == 0:
+        if i & (2**6-1) == 0:   # borde nog använda modulo operatorn (%) istället för bitwise and (&). Försökte få for-loopen att gå snabbare men detta sparar nog knappt någon tid
             print(i)  # Leave enabled since it's a nice progress bar
             pos = np.array([coord[int(dof[1] / 2 - 1)], coord[int(dof[3] / 2 - 1)], coord[int(dof[5] / 2 - 1)]]).transpose()
             print("temp: ", temp+293, " at ", pos)
@@ -928,7 +930,7 @@ def MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers
 
         Fe = cfc.plantf(ex[i], ey[i], ep, es)
         # print(Fe)
-        F = customFAssm(edof, F, Fe)
+        F = customFAssm(edof, F, Fe)    # Only the parts about the F-matrix in hopes of the for-loop going a little faster
 
     # print(F)
     return F
@@ -938,7 +940,7 @@ def MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers
 if __name__=="__main__":
     #test(plot=False)
 
-    statTherm(plot=False)
+    #statTherm(plot=False)
 
     temps = dynTherm(plot=False)
 
