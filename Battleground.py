@@ -2,10 +2,9 @@ import calfem.core as cfc
 import numpy as np
 
 
-def MaltSix(nodes_in_el, eltopo, temps, T_0, E, v, Alpha, ep, elx, ely, f_mechanical) :
+def MaltSix(nodes_in_el, eltopo, temps, T_0, E, v, el_alpha, ep, elx, ely, f_mechanical) :
     el_D_matrix = D_matrix(E, v)
     el_nu = v
-    el_alpha = Alpha
     el_E = E
     K_mechanical = np.zeros((6,6))
 
@@ -15,7 +14,7 @@ def MaltSix(nodes_in_el, eltopo, temps, T_0, E, v, Alpha, ep, elx, ely, f_mechan
                      + temps[nodes_in_el[2] - 1])[0]
     # Calculates the temperature difference from the
     deltaT = meanT - T_0
-    print("dT: ", deltaT)
+    #print("dT: ", deltaT)
 
     # Element contribution due to thermal expansion
     epsilon_deltaT = el_alpha * deltaT * np.array([[1], [1], [0]])
@@ -29,6 +28,10 @@ def MaltSix(nodes_in_el, eltopo, temps, T_0, E, v, Alpha, ep, elx, ely, f_mechan
 
     # el_D_matrix = cfc.hooke(2, el_E, el_nu)
     Ke = cfc.plante(elx, ely, ep, el_D_matrix)
+    Ke = np.zeros((6, 6))
+
+
+    print(Ke, fe)
     cfc.assem(eltopo, K_mechanical, Ke, f_mechanical, fe)
     print("f: ", f_mechanical)
 
@@ -43,30 +46,36 @@ def D_matrix(E, v):
 def JohAnt(nodes_in_el, edof, temps, Tinfty, ETi, VTi, AlphaTi, ep, ex, ey, F) :
     es = np.array([[0, 0, 0]])
 
-    # Average temp of element
     dof = edof[0]
+
+    # Average temp of element
     temp = (temps[int(dof[1] / 2 - 1)] + temps[int(dof[3] / 2 - 1)] + temps[int(dof[5] / 2 - 1)]) / 3
     temp = temp[0] - Tinfty
-    print("dT: ", temp)
+    #print("dT: ", temp)
 
     preSigTi = np.array([[1, 1, 0]]) * AlphaTi * ETi / (1 - 2 * VTi)
     #preSigCu = np.array([[1, 1, 0]]) * AlphaCu * ECu / (1 - 2 * VCu)
 
     #if element_markers[i] == MARKER_TiAlloy:
     es[0] = preSigTi * temp
+    # else:
+    #    es[0] = preSigCu * temp
 
 
-    es =
+    # Dessa två rader är lånade från malte o sixten för att se om de funkar bättre
+    epsilon_deltaT = AlphaTi * temp * np.array([[1], [1], [0]])
+    es = D_matrix(ETi, VTi) @ epsilon_deltaT  # @ Ser läskig ut men är bara matrismultiplikation
+    es = es.T # För att slippa transponera senare i koden
+
 
     print("es: ", es)
 
-    #else:
-    #    es[0] = preSigCu * temp
 
     Fe = cfc.plantf(ex, ey, ep, es)
     print("fe: ", Fe)
 
     F = customFAssm(edof, F, Fe)
+
     print("f: ", F)
 
 def customFAssm(edof, f, fe) :
@@ -95,9 +104,12 @@ if __name__=="__main__":
     ex = [0, 1, 0]
     ey = [0, 0, 1]
     F = np.zeros((6,1))
+    print(customHooke(ETi, VTi))
+    print(D_matrix(ETi, VTi))
 
-    print("Malte och Sixtens kod: ")
-    MaltSix(nodes_in_el, edof, temps, Tinfty, ETi, VTi, AlphaTi, ep, ex, ey, F)
-    print("")
-    print("Johan och Antons kod: ")
-    JohAnt(nodes_in_el, edof, temps, Tinfty, ETi, VTi, AlphaTi, ep, ex, ey, F)
+    if False:
+        print("Malte och Sixtens kod: ")
+        MaltSix(nodes_in_el, edof, temps, Tinfty, ETi, VTi, AlphaTi, ep, ex, ey, F)
+    else :
+        print("Johan och Antons kod: ")
+        JohAnt(nodes_in_el, edof, temps, Tinfty, ETi, VTi, AlphaTi, ep, ex, ey, F)

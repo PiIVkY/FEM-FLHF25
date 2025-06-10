@@ -16,7 +16,7 @@ import numpy as np
 
 
 # Mesh data
-el_sizef, el_type= 0.04, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
+el_sizef, el_type= 0.08, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
 
 mesh_dir = "./"
 
@@ -336,10 +336,14 @@ def Mech(plot, temps) :
 
     F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, temps)
 
-    # F = np.zeros((len(F), 1)) # Uncomment to show only thermal stresses
+    F = np.zeros((len(F), 1)) # Uncomment to show only thermal stresses
 
     F = MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers, temps)
 
+    print(K)
+    print(F)
+    print(bc)
+    print(bc_value)
     a, r = cfc.solveq(K, F, bc, bc_value)
 
     # Calculate von mises stress
@@ -355,12 +359,17 @@ def Mech(plot, temps) :
         if element_markers[i] == MARKER_CuCr:
             es, et = cfc.plants(ex[i, :], ey[i, :], ep, DCu, ed[i, :])
             ezz = some_constants["VCu"]*(es[0,0] + es[0,1]) - some_constants["AlphaCu"] * some_constants["ECu"] * temp
+            e0s = some_constants["AlphaCu"] * some_constants["ECu"] / (1 - 2 * some_constants["VCu"])       # Stress reduction from thermal strain
+            exx = es[0, 0] - e0s
+            eyy = es[0, 1] - e0s
+            txy = es[0, 2]
         else:
             es, et = cfc.plants(ex[i, :], ey[i, :], ep, DTi, ed[i, :])
             ezz = VTi * (es[0, 0] + es[0, 1]) - AlphaTi * ETi * temp
-        exx =  es[0,0]
-        eyy =  es[0,1]
-        txy = es[0,2]
+            e0s = AlphaTi * ETi / (1 - 2 * VTi) * temp              # Stress reduction from thermal strain
+            exx =  es[0,0] - e0s
+            eyy =  es[0,1] - e0s
+            txy = es[0,2]
         von_mises.append(np.sqrt(exx*exx + eyy*eyy + ezz*ezz - exx*eyy - exx*ezz - eyy*ezz + 3 * txy*txy))
 
     x = 0
@@ -439,26 +448,13 @@ def plantml(ex: np.array, ey: np.array, s: float):
     Me *= A*s
     return Me
 
-def customPlantf(ex, ey, ep, es) :
-    ptype, t = ep
-
-    A = 0.5 * np.linalg.det(np.matrix([
-        [1, ex[0], ey[0]],
-        [1, ex[1], ey[1]],
-        [1, ex[2], ey[2]]
-    ]))
-
-    B = np.matrix([
-        [0, 1, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 1],
-        [0, 0, 1, 0, 1, 0]
-    ])
-
-    stress = np.asmatrix(es)
-
-    ef = (A * t * B.T * stress.T).T
-
-    return np.reshape(np.asarray(ef), (6, 1))
+def customHooke(E, v) -> np.matrix:
+    D = E * np.matrix(
+        [[1-v, v, 0],
+         [v, 1-v, 0],
+         [0, 0, (1 - 2 * v) / 2]]
+    ) / ((1 + v) * (1 - 2 * v))
+    return D
 
 def customFAssm(edof, f, fe) :
     for row in edof:
@@ -610,9 +606,10 @@ def MakeThermBC(F, bdofs, edof, coord, some_constants) :
             F[e[0]-1] -= l*some_constants["thickness"]*ChamberCooling/2
             F[e[1]-1] -= l*some_constants["thickness"]*ChamberCooling/2
 
+    KModifier = np.zeros([len(F), len(F)])
+
     if MARKER_BellOutside in bdofs.keys():
         # Add convecton BC
-        KModifier = np.zeros([len(F), len(F)])
         for e in edges[MARKER_BellOutside] :
             #print("e: ", e)
             x1, y1 = coord[e[0]-1]
@@ -793,8 +790,8 @@ def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_consta
     ep = np.array([ptype, some_constants["thickness"]])
     n_dofs = np.size(dofs)
     ex, ey = cfc.coordxtr(edof, coord, dofs)
-    DCu = cfc.hooke(ptype, some_constants["ECu"], some_constants["VCu"])
-    DTi = cfc.hooke(ptype, ETi, VTi)
+    DCu = customHooke(some_constants["ECu"], some_constants["VCu"])
+    DTi = customHooke(ETi, VTi)
     K = np.zeros([n_dofs, n_dofs])
     for i in range(len(edof)):
         if element_markers[i] == 1:
@@ -815,7 +812,7 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
         bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_ChamberOutside, 0.0)
     if MARKER_QN_0 in bdofs.keys():
         bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_QN_0, 0.0, 2)
-    if MARKER_TCONST in bdofs.keys():
+    if MARKER_TCONST in bdofs.keys(): # MARKER_TCONST only occurs in the test case since the pressure function is not made to handle multiple different pressure zones
         cfu.applyforce(bdofs, F, MARKER_TCONST, -150e6*some_constants["thickness"]*0.005/2, 2) # pressure = 150 MPa, thickness = 0.01, sidelenght = 0.01 => 10 KN
 
 
@@ -852,47 +849,8 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
 
         F[dofs[int(e[1] - 1)][0] - 1] += fx / 2
         F[dofs[int(e[1] - 1)][1] - 1] += fy / 2
-    #print(F)
-    #print(bc, bc_value)
 
 
-    """#Make initial stress
-    ptype = 2
-    ep = np.array([ptype, some_constants["thickness"]])
-    n_dofs = np.size(dofs)
-    ex, ey = cfc.coordxtr(edof, coord, dofs)
-    preSigTi = np.array([[1, 1, 0]]) * AlphaTi * ETi / (1-2*VTi)
-    preSigCu = np.array([[1, 1, 0]]) * some_constants["AlphaCu"] * some_constants["ECu"] / (1 - 2 * some_constants["VCu"])
-
-    slask = np.zeros((n_dofs, n_dofs))
-    slaske = [[0]]
-    #F = np.zeros((len(F), 1)) # Uncomment to show only thermal stresses
-    es = np.array([[0, 0, 0]])
-
-    print(len(edof))    #Leave enabled since it shows how roughly how long it will take
-
-    for i in range(len(edof)):
-        #Average temp of element
-        dof = edof[i]
-        temp = (temps[int(dof[1]/2-1)] + temps[int(dof[3]/2-1)] + temps[int(dof[5]/2-1)])/3
-        temp = temp[0, 0] - some_constants["Tinfty"]
-
-        if i%25 == 0 :
-            print(i)    #Leave enabled since it's a nice progress bar
-            pos = [coord[int(dof[1] / 2 - 1)], coord[int(dof[3] / 2 - 1)], coord[int(dof[5] / 2 - 1)]]
-            #print("temp: ", temp+293, " at ", pos)
-
-        if element_markers[i] == MARKER_TiAlloy :
-            es[0] = preSigTi*temp*1e-3
-
-        else :
-            es[0] = preSigCu*temp*1e-3
-
-        Fe = customPlantf(ex[i], ey[i], ep, es)
-        #print(Fe)
-        slask, F = cfc.assem(edof, slask, slaske, F, Fe)
-
-    #print(F)"""
     return F, bc, bc_value
 
 def MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers, temps) :
@@ -919,20 +877,27 @@ def MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers
 
         if i & (2**6-1) == 0:   # borde nog använda modulo operatorn (%) istället för bitwise and (&). Försökte få for-loopen att gå snabbare men detta sparar nog knappt någon tid
             print(i)  # Leave enabled since it's a nice progress bar
-            pos = np.array([coord[int(dof[1] / 2 - 1)], coord[int(dof[3] / 2 - 1)], coord[int(dof[5] / 2 - 1)]]).transpose()
-            print("temp: ", temp+293, " at ", pos)
+            #pos = np.array([coord[int(dof[1] / 2 - 1)], coord[int(dof[3] / 2 - 1)], coord[int(dof[5] / 2 - 1)]]).transpose()
+            #print("temp: ", temp+293, " at ", pos)
 
         if element_markers[i] == MARKER_TiAlloy:
-            es[0] = preSigTi * temp
+            #es[0] = preSigTi * temp # Deprecated, ersatt av snippet från malte o sixten
+            # Dessa två rader är lånade från malte o sixten för att se om de funkar bättre
+            epsilon_deltaT = AlphaTi * temp * np.array([[1], [1], [0]])
+            es = customHooke(ETi, VTi) @ epsilon_deltaT  # @ Ser läskig ut men är bara matrismultiplikation
+            es = es.T  # För att slippa transponera senare i koden
 
         else:
-            es[0] = preSigCu * temp
+            #es[0] = preSigCu * temp# Deprecated, ersatt av snippet från malte o sixten
+            # Dessa två rader är lånade från malte o sixten för att se om de funkar bättre
+            epsilon_deltaT =  some_constants["AlphaCu"] * temp * np.array([[1], [1], [0]])
+            es = customHooke(some_constants["ECu"], some_constants["VCu"]) @ epsilon_deltaT  # @ Ser läskig ut men är bara matrismultiplikation
+            es = es.T  # För att slippa transponera senare i koden
 
         Fe = cfc.plantf(ex[i], ey[i], ep, es)
         # print(Fe)
         F = customFAssm(edof, F, Fe)    # Only the parts about the F-matrix in hopes of the for-loop going a little faster
 
-    # print(F)
     return F
 
 
@@ -944,4 +909,4 @@ if __name__=="__main__":
 
     temps = dynTherm(plot=False)
 
-    Mech(plot=False, temps=temps)
+    Mech(plot=True, temps=temps)
