@@ -336,7 +336,7 @@ def Mech(plot, temps) :
 
     # F = np.zeros((len(F), 1)) # Uncomment to show only thermal stresses
 
-    F, ez = MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers, temps)
+    F = MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers, temps)
 
     a, r = cfc.solveq(K, F, bc, bc_value)
 
