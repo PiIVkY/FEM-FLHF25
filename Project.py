@@ -230,7 +230,7 @@ def statTherm(plot) :
     print("Stationär maxtemp:", max, " på plats ", maxcord, "Stationär mintemp:", min, " på plats ", mincord)
     print("Störst temperaturskillnad", diff, " på plats ", diffcord)
 
-    if plot:  # Set to True to plot mesh and solution to thermal problem
+    if plot:  
         # Plots the nozzle geometry
         cfv.draw_geometry(
             NozzleGeom(),
@@ -287,28 +287,35 @@ def dynTherm(plot) :
         "InsidePressure": 1e6,  # Pa
     }
 
+    # Creates the mesh for the thermal problem
     coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
 
+    # Assembles the K-matrix
     K = AssembleThermStiffness(coord, edof, dofs, element_markers, some_constants)
 
+    # Computes the boundary coditions and inserts them into the F-matrix
+    # Also computes the change to K due to the convection boundary contition
     F, bc, bc_value, KModifier = MakeThermBC(coord, edof, dofs, bdofs, some_constants)
     
-    K = K + KModifier  # Update K with changes from convection BC
+    # Update K with changes from convection boundary contition
+    K = K + KModifier  
 
+    # Computes the capacity matrix 
     C = MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants)
 
+    # Initializes array with the temperatures in the nozzle at t=0
     a0 = np.ones((len(dofs), 1)) * some_constants["Tinfty"]
 
+    # Values for the time stepping method
     dt, tottime, alpha = 10, 3600, 1
-
     smoothness = 0.5
     times = [100 * i * smoothness for i in range(int(tottime / (100 * smoothness)))]
 
-    print("Starting calculations...")
+    # Carries out the time stepping method over the entire nozzle
     modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
-    print("Done calculating")
 
     if plot:
+        # Finds and plots the max and min temperature in the nozzle over all time steps
         Tmax = np.empty(len(times))
         Tmin = np.empty(len(times))
         for i in range(len(times)):
@@ -325,6 +332,7 @@ def dynTherm(plot) :
         plt.title("Maximum and minimum temperature in the rocket nozzle for the first hour")
         plt.show()
 
+        # Generates an animated plot for the temperatures at all time steps
         UNIT = 1 / 2.54
         wcm, hcm = 35, 10
         fig, (ax, cbax) = plt.subplots( 1, 2, width_ratios=[10, 1], figsize=(wcm * UNIT, hcm * UNIT))
@@ -335,10 +343,11 @@ def dynTherm(plot) :
         edof_tri = cfv.topo_to_tri(edof)
         im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
         fig.colorbar(im, ax=ax, cax = cbax, label='Temperature [K]', format=fmt)
-        #im.set_clim(Tinfty, 420)
+        
         i0 = 0
         tx = ax.text(3, 0.1, str(i0))
 
+        # Function which assists in the animation
         def animate(i) :
             v = np.asarray(modhist["a"].transpose()[i])
             im = ax.tripcolor(x, y, edof_tri - 1, v.ravel(), shading="gouraud")
@@ -346,10 +355,9 @@ def dynTherm(plot) :
             #im.set_clim(vmin, 420)
             tx.set_text("frame: " + str(i))
 
-
         plt.title("Temperature distribution at equilibrium")
 
-
+        # Plots the animation
         ani = animation.FuncAnimation(fig=fig, func=animate, frames = len(times), interval=(smoothness*200))
         plt.show()
 
@@ -884,6 +892,49 @@ def MakeThermBC(coord, edof, dofs, bdofs, some_constants) :
 
     return F, bc, bc_value, KModifier
 
+def MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants) -> np.array :
+    """ 
+    Calculates the capacity matrix used in the numerical integration method
+    
+    Input:
+    coord, dofs, edof, element_markers: Mesh properties
+    some_constants: List of relevant constants
+
+    Output: 
+        C: Global capacity matrix
+    """
+    
+    # Creates an empty capacity matrix
+    C = np.zeros((len(dofs), len(dofs)))
+
+    # Iterates over all elements to calculate the global capacity matrix
+    for i in range(len(edof)) :
+        xCord = np.zeros(3)
+        yCord = np.zeros(3)
+
+        # Finds the coordinates of the nodes in an element
+        for j in range(len(edof[i])):
+            x, y = coord[edof[i][j]-1]
+            xCord[j] += x
+            yCord[j] += y
+
+        # Computes the element capacity matrix
+        if element_markers[i] == MARKER_CuCr :
+            const = some_constants["thickness"]*some_constants["CCu"]*some_constants["RhoCu"]
+            Ce = plantml(xCord, yCord, const)
+        else:
+            const = some_constants["thickness"]*CTi*RhoTi
+            Ce = plantml(xCord, yCord, const)
+        
+        # Inserts the element capacity matrix into the global capacity matrix
+        for k in range(0,3) : 
+            for l in range(0,3) :
+                C[edof[i][k]-1][edof[i][l]-1] += Ce[k][l]
+
+    return C
+
+
+
 def plotTherm(a, coord, edof) : #KAN SLÄNGAS
     """
     Plots solution to the stationary thermal problem
@@ -909,30 +960,6 @@ def plotTherm(a, coord, edof) : #KAN SLÄNGAS
     plt.ylabel("y-coordinate [m]")
 
     plt.show()
-
-
-def MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants) -> np.array :
-    C = np.zeros((len(dofs), len(dofs)))
-
-    for i in range(len(edof)) :
-        xCord = np.zeros(3)
-        yCord = np.zeros(3)
-        for j in range(len(edof[i])):
-            x, y = coord[edof[i][j]-1]
-            xCord[j] += x
-            yCord[j] += y
-        if element_markers[i] == MARKER_CuCr :
-            const = some_constants["thickness"]*some_constants["CCu"]*some_constants["RhoCu"]
-            Ce = plantml(xCord, yCord, const)
-        else:
-            const = some_constants["thickness"]*CTi*RhoTi
-            Ce = plantml(xCord, yCord, const)
-        for k in range(0,3) : 
-            for l in range(0,3) :
-                C[edof[i][k]-1][edof[i][l]-1] += Ce[k][l]
-    return C
-
-
 
 def MakeMechMesh(geom) : #KAN SLÄNGAS
     mesh = cfm.GmshMeshGenerator(geom, mesh_dir=mesh_dir)
