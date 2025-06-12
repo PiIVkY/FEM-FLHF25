@@ -16,7 +16,7 @@ import numpy as np
 
 
 # Mesh data
-el_sizef, el_type= 0.08, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
+el_sizef, el_type= 0.04, 2 # el_size = 0.08 ser nice ut, el_type vet ej vad den gör
 
 mesh_dir = "./"
 
@@ -324,75 +324,196 @@ def Mech(plot, temps) :
         "Tinfty": 293,  # K
     }
 
-    # Solve stationary mechanical problem
-    coord, edof, dofs, bdofs, element_markers = MakeMechMesh(NozzleGeom())
+    ########## Generate the mesh for the mechanical problem with 2 degrees of freedom per node
+    mesh = cfm.GmshMeshGenerator(NozzleGeom(), mesh_dir=mesh_dir)
+
+    dofs_pn = 2 # skutning x, skjutning y
+
+    mesh.el_size_factor = el_sizef
+    mesh.el_type = el_type
+    mesh.dofs_per_node = dofs_pn
+
+    coord, edof, dofs, bdofs, element_markers = mesh.create()
+
+    """# Plotta den generade meshen
+    fig, ax = plt.subplots()
+    cfv.draw_geometry(
+        geom,
+        label_curves=True,
+        title="Geometry: Computer Lab Exercise 2"
+    )
+    plt.show()
+    cfv.draw_mesh(coords=coord, edof=edof, dofs_per_node=mesh.dofs_per_node, el_type=mesh.el_type, filled=True)
+    plt.show()"""
+    ##########
+
+    ########## PlotSurfaceNormals
+    
+    bnods = {key: np.divide(bdofs[key][1::2], 2) for key in bdofs}
+    enods = edof[:,1::2]/2
+    edges = nodesToEdges(bnods, enods)
+
+    normalVect_x_coords = np.zeros(len(edges[MARKER_Inside]))
+    normalVect_y_coords = np.zeros(len(edges[MARKER_Inside]))
+    normalVect_x_directions = np.zeros(len(edges[MARKER_Inside]))
+    normalVect_y_directions = np.zeros(len(edges[MARKER_Inside]))
+
+    for i in range(len(edges[MARKER_Inside])) :
+        x1, y1 = coord[int(edges[MARKER_Inside][i][0]-1)]
+        x2, y2 = coord[int(edges[MARKER_Inside][i][1]-1)]
+        vect = [(x2-x1), (y2-y1), 0]
+        if(np.sqrt(x2*x2 + y2*y2) > np.sqrt(x1*x1 + y1*y1)) :
+            normalVect = np.cross(vect, [0, 0, 1])
+        else :
+            normalVect = np.cross(vect, [0, 0, -1])
+
+        normalVect_x_directions[i], normalVect_y_directions[i] = [normalVect[0]/np.sqrt(normalVect[0]**2+normalVect[1]**2), normalVect[1]/np.sqrt(normalVect[0]**2+normalVect[1]**2)]
+
+        normalVect_x_coords[i], normalVect_y_coords[i] = [(x1+x2)/2.0, (y1+y2)/2.0]
+
+        plot_scale = 0.1
+        plt.quiver(normalVect_x_coords[i], normalVect_y_coords[i], normalVect_x_directions[i]*plot_scale, normalVect_y_directions[i]*plot_scale, color = 'r')
 
     if plot :
-        plotSurfaceNormals(bdofs, edof, coord)
+        cfv.draw_geometry(
+                NozzleGeom(),
+                label_curves=False,
+            )
+        plt.title("Surface normals for the inside of the rocket nozzle")
+        plt.xlabel("x-coordinate [m]")
+        plt.ylabel("y-coordinate [m]")
+        plt.show()
+    ##########
 
-    K, DCu, DTi, ex, ey, ep = AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants)
+    ########## Sätt ihop K-matrisen och F för den termiska stressen
+    ptype = 2
+    ep = np.array([ptype, some_constants["thickness"]])
+    n_dofs = np.size(dofs)
+    ex, ey = cfc.coordxtr(edof, coord, dofs)
 
-    F = np.zeros([np.size(dofs), 1])
+    DCu = customHooke(some_constants["ECu"], some_constants["VCu"])
+    DTi = customHooke(ETi, VTi)
 
-    F, bc, bc_value = MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, temps)
+    K = np.zeros([n_dofs, n_dofs])
+    F = np.zeros([n_dofs, 1])
 
-    F = np.zeros((len(F), 1)) # Uncomment to show only thermal stresses
+    for i in range(len(edof)):
+        #### Ke-part
+        if element_markers[i] == 1:
+            Ke = cfc.plante(ex[i], ey[i], ep, DTi)
+        else:
+            Ke = cfc.plante(ex[i], ey[i], ep, DCu)
+        ####
 
-    F = MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers, temps)
-
-    print(K)
-    print(F)
-    print(bc)
-    print(bc_value)
-    a, r = cfc.solveq(K, F, bc, bc_value)
-
-    # Calculate von mises stress
-    ed = cfc.extract_eldisp(edof, a)  # element displacement
-
-    von_mises = []
-
-    for i in range(edof.shape[0]):
+        #### Fe-part
         dof = edof[i]
+
+        # Average temp of element
         temp = (temps[int(dof[1] / 2 - 1)] + temps[int(dof[3] / 2 - 1)] + temps[int(dof[5] / 2 - 1)]) / 3
         temp = temp[0, 0] - some_constants["Tinfty"]
 
-        if element_markers[i] == MARKER_CuCr:
-            es, et = cfc.plants(ex[i, :], ey[i, :], ep, DCu, ed[i, :])
-            ezz = some_constants["VCu"]*(es[0,0] + es[0,1]) - some_constants["AlphaCu"] * some_constants["ECu"] * temp
-            e0s = some_constants["AlphaCu"] * some_constants["ECu"] / (1 - 2 * some_constants["VCu"])       # Stress reduction from thermal strain
-            exx = es[0, 0] - e0s
-            eyy = es[0, 1] - e0s
-            txy = es[0, 2]
-        else:
-            es, et = cfc.plants(ex[i, :], ey[i, :], ep, DTi, ed[i, :])
-            ezz = VTi * (es[0, 0] + es[0, 1]) - AlphaTi * ETi * temp
-            e0s = AlphaTi * ETi / (1 - 2 * VTi) * temp              # Stress reduction from thermal strain
-            exx =  es[0,0] - e0s
-            eyy =  es[0,1] - e0s
-            txy = es[0,2]
-        von_mises.append(np.sqrt(exx*exx + eyy*eyy + ezz*ezz - exx*eyy - exx*ezz - eyy*ezz + 3 * txy*txy))
+        if i % 100 == 0:
+            print(i)  # Leave enabled since it's a nice progress bar
 
-    x = 0
-    for i in von_mises:
-        if (i > x):
-            x = i
-    print("biggest von_mises:", x / 1e6, " MPa")
+        if element_markers[i] == MARKER_TiAlloy:
+            # Dessa två rader är lånade från malte o sixten för att se om de funkar bättre
+            epsilon_deltaT = AlphaTi * temp * np.array([[1], [1], [0]])
+            es = customHooke(ETi, VTi) @ epsilon_deltaT  # @ Ser läskig ut men är bara matrismultiplikation
+
+        else:
+            # Dessa två rader är lånade från malte o sixten för att se om de funkar bättre
+            epsilon_deltaT =  some_constants["AlphaCu"] * temp * np.array([[1], [1], [0]])
+            es = customHooke(some_constants["ECu"], some_constants["VCu"]) @ epsilon_deltaT  # @ Ser läskig ut men är bara matrismultiplikation
+
+        Fe = cfc.plantf(ex[i], ey[i], ep, es.T)
+
+        cfc.assem(edof[i], K, Ke, F, Fe)
+    ##########
+
+    #### Randvärden (förutom trycket inuti raketen)
+    bc, bc_value = np.array([], 'i'), np.array([], 'f')
+    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_ChamberOutside, 0.0)
+    bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_QN_0, 0.0, 2)
+    ####
+
+    #### Lösning av det termiska problemet
+    u_thermal, _ = cfc.solveq(K, F, bc, bc_value)
+    cfv.figure()
+    cfv.draw_displacements(u_thermal, coord, edof, 2, 2, draw_undisplaced_mesh=True, magnfac=100,
+                       title="Displacement due to thermal expansion,\n with a magnification factor of 100")
+    plt.xlabel("Längd [m]")
+    plt.ylabel("Längd [m]")
+    ####
+
+    #### Tillägg av trycket inuti raketen till randvärdena
+    
+
+    # Calculate force from pressure inside chamber
+    for i, edge in enumerate(edges[MARKER_Inside]):
+        n1, n2 = edge
+        L = np.linalg.norm(coord[int(n1) - 1] - coord[int(n2) - 1])
+
+        x_dir = normalVect_x_directions[i]
+        y_dir = normalVect_y_directions[i]
+        
+        normalVect = np.array([x_dir, y_dir])/np.linalg.norm((x_dir, y_dir))
+        
+        p_0_force = some_constants["InsidePressure"] * some_constants["thickness"] * L * normalVect
+
+        F[2 * (int(n1) - 1)] -= p_0_force[0]
+        F[2 * (int(n1) - 1) + 1] -= p_0_force[1]
+
+    ##########
+
+    a, r = cfc.solveq(K, F, bc, bc_value)
+
+    ed = cfc.extract_eldisp(edof, a)  # element displacement
+
+    ########## Calculate von mises stress
+    von_mises_per_el = np.zeros(len(edof))
+
+    for i in range(len(edof)):
+        dof = edof[i]
+        temp = (temps[int(dof[1] / 2 - 1)] + temps[int(dof[3] / 2 - 1)] + temps[int(dof[5] / 2 - 1)]) / 3
+        deltaT = temp[0, 0] - some_constants["Tinfty"]
+
+        if element_markers[i] == MARKER_CuCr:
+            es, _ = cfc.plants(ex[i], ey[i], ep, DCu, ed[i])
+
+            epsilon_deltaT = some_constants["AlphaCu"] * deltaT * np.array([[1], [1], [0]])
+            D_epsilon_deltaT = customHooke(some_constants["ECu"], some_constants["VCu"]) @ epsilon_deltaT
+
+            sigma_x = es[0, 0] - D_epsilon_deltaT[0]
+            sigma_y = es[0, 1] - D_epsilon_deltaT[1]
+            tau_xy = es[0, 2] - D_epsilon_deltaT[2]
+            sigma_z = some_constants["VCu"]*(sigma_x + sigma_y) - some_constants["AlphaCu"] * some_constants["ECu"] * deltaT
+
+        else:
+            es, _ = cfc.plants(ex[i], ey[i], ep, DTi, ed[i])
+
+            epsilon_deltaT = AlphaTi * deltaT * np.array([[1], [1], [0]])
+            D_epsilon_deltaT = customHooke(ETi, VTi) @ epsilon_deltaT
+
+            sigma_x = es[0, 0] - D_epsilon_deltaT[0]
+            sigma_y = es[0, 1] - D_epsilon_deltaT[1]
+            tau_xy = es[0, 2] - D_epsilon_deltaT[2]
+            sigma_z = VTi * (sigma_x + sigma_y) - AlphaTi * ETi * deltaT
+        
+        sigma_eff = np.sqrt(sigma_x **2 + sigma_y **2 + sigma_z **2 - sigma_x*sigma_y - sigma_x*sigma_z - sigma_y*sigma_z + 3 * tau_xy **2)
+        von_mises_per_el[i] = sigma_eff
+    
+    _, oldEdof, _, _, _ = MakeThermMesh(NozzleGeom())
+    von_mises_nodal_values = elmToNode(von_mises_per_el, oldEdof)
+   
+    print(f"Maximum von Mises stress: {np.max(von_mises_nodal_values) / 1e6} MPa")
 
     if plot :
         cfv.figure(fig_size=(10, 5))
-        cfv.draw_element_values(
-            von_mises,
-            coord,
-            edof,
-            2,
-            el_type,
-            a,
-            draw_elements=False,
-            draw_undisplaced_mesh=True,
-            title="Effective stress and displacement",
-            magnfac=1.0,
-        )
+        cfv.draw_nodal_values_shaded(von_mises_nodal_values, coord, oldEdof, "von Mises stress distribution at t = 1 h")
+        cfv.colorbar()
         cfv.show_and_wait()
+    ##########
+    
 
 
 
@@ -456,12 +577,34 @@ def customHooke(E, v) -> np.matrix:
     ) / ((1 + v) * (1 - 2 * v))
     return D
 
-def customFAssm(edof, f, fe) :
-    for row in edof:
-        idx = row - 1
-        f[np.ix_(idx)] = f[np.ix_(idx)] + fe
-    return f
+def elmToNode(eV: np.array, edof: np.array) -> np.array:
+    """
+    Estimates nodal values from element - based values
 
+    Args :
+    eV (np.array): element values
+    edof (np.array): element connectivity matrix
+
+    Returns :
+    np. array : nodal - based values
+    """
+
+    nnod: int = np.max(edof)
+    ne: int = 0
+    nV = np.zeros((nnod,))
+    # Loop over nodes
+    for n in range(0, nnod):
+        ne = 0
+        # Check which elements contain the node
+        for e, eldof in enumerate(edof):
+            # If e contains the node add the elemental value
+            if ((n + 1) in eldof):
+                ne += 1
+                nV[n] += eV[e]
+
+        # Divide by total number of elements
+        nV[n] /= ne
+    return nV
 
 
 def NozzleGeom() :
@@ -754,36 +897,6 @@ def MakeMechTestMesh() :
 
     return (coord, edof, dofs, bdofs, element_markers)
 
-def plotSurfaceNormals(bdofs, edof, coord) :
-    bnods = {key: np.divide(bdofs[key][1::2], 2) for key in bdofs}
-    enods = edof[:,1::2]/2
-    edges = nodesToEdges(bnods, enods)
-
-    for i in range(len(edges[MARKER_Inside])) :
-        x1, y1 = coord[int(edges[MARKER_Inside][i][0]-1)]
-        x2, y2 = coord[int(edges[MARKER_Inside][i][1]-1)]
-        vect = [(x2-x1), (y2-y1), 0]
-        if(np.sqrt(x2*x2 + y2*y2) > np.sqrt(x1*x1 + y1*y1)) :
-            normalVect = np.cross(vect, [0, 0, 1])
-        else :
-            normalVect = np.cross(vect, [0, 0, -1])
-
-        normedVect = [normalVect[0]/np.sqrt(normalVect[0]**2+normalVect[1]**2), normalVect[1]/np.sqrt(normalVect[0]**2+normalVect[1]**2)]
-
-        midpoint = [(x1+x2)/2.0, (y1+y2)/2.0]
-
-        plot_scale = 0.1
-        plt.quiver(midpoint[0], midpoint[1], normedVect[0]*plot_scale, normedVect[1]*plot_scale, color = 'r')
-
-    cfv.draw_geometry(
-            NozzleGeom(),
-            label_curves=False,
-        )
-    plt.title("Surface normals for the inside of the rocket nozzle")
-    plt.xlabel("x-coordinate [m]")
-    plt.ylabel("y-coordinate [m]")
-    plt.show()
-
 def AssembleMechStiffness(coord, edof, dofs, bdofs, element_markers, some_constants) :
     # Assemble plane strain matrix
     ptype = 2
@@ -853,46 +966,7 @@ def MakeMechBC(F, coord, dofs, bdofs, edof, some_constants, element_markers, tem
 
     return F, bc, bc_value
 
-def MakeInitialThermStress(F, coord, dofs, edof, some_constants, element_markers, temps) :
-    ptype = 2
-    ep = np.array([ptype, some_constants["thickness"]])
-    n_dofs = np.size(dofs)
-    ex, ey = cfc.coordxtr(edof, coord, dofs)
 
-    es = np.array([[0, 0, 0]])
-
-    print(len(edof))  # Leave enabled since it shows how roughly how long it will take
-
-    for i in range(len(edof)):
-        if 1 in edof[i] :
-            print("Hello!")
-
-        dof = edof[i]
-
-        # Average temp of element
-        temp = (temps[int(dof[1] / 2 - 1)] + temps[int(dof[3] / 2 - 1)] + temps[int(dof[5] / 2 - 1)]) / 3
-        temp = temp[0, 0] - some_constants["Tinfty"]
-
-        if i % 100 == 0:
-            print(i)  # Leave enabled since it's a nice progress bar
-
-        if element_markers[i] == MARKER_TiAlloy:
-            # Dessa två rader är lånade från malte o sixten för att se om de funkar bättre
-            epsilon_deltaT = AlphaTi * temp * np.array([[1], [1], [0]])
-            es = customHooke(ETi, VTi) @ epsilon_deltaT  # @ Ser läskig ut men är bara matrismultiplikation
-            es = es.T  # För att slippa transponera senare i koden
-
-        else:
-            # Dessa två rader är lånade från malte o sixten för att se om de funkar bättre
-            epsilon_deltaT =  some_constants["AlphaCu"] * temp * np.array([[1], [1], [0]])
-            es = customHooke(some_constants["ECu"], some_constants["VCu"]) @ epsilon_deltaT  # @ Ser läskig ut men är bara matrismultiplikation
-            es = es.T  # För att slippa transponera senare i koden
-
-        Fe = cfc.plantf(ex[i], ey[i], ep, es)
-
-        F = customFAssm(edof, F, Fe)    # Only assemble the F-matrix in hopes of the for-loop going a little faster
-
-    return F
 
 
 
