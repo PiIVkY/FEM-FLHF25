@@ -33,9 +33,18 @@ RhoTi = 4540    # Density (kg/m^3)
 CTi = 590       # Specific heat (J/KgK)
 KTi = 12        # Thermal conductivity (W/mK)
 
-# Boundary markers and values for the heat flows on relevant boundaries
+# Constants for the Cu-Cr-alloy
+ECu = 139e9    # Young's modulus (Pa)
+VCu = 0.18     # Poisson's ratio
+AlphaCu = 17e-6# thermal expansion coefficient (1/K)
+RhoCu = 8890   # Density (kg/m^3)
+CCu = 377      # Specific heat (J/KgK)
+KCu = 323      # Thermal conductivity (W/mK)
+
+# Boundary markers and values for relevant boundary conditions
 MARKER_Inside = 2
 ChamberHeating = 5000 # (W/m^2)
+p_0 = 1e6  # (Pa)
 
 MARKER_BellOutside = 3
 
@@ -45,6 +54,11 @@ ChamberCooling = 1000 # (W/m^2)
 MARKER_QN_0 = 5
 MARKER_Material_Transition = 6 
 
+# Other constants
+AlphaConvection = 50  # (W/m^2K)
+thickness = 1 # (m)
+Tinfty = 293  # (K)
+
 
 def statTherm(plot) :
     """
@@ -53,30 +67,16 @@ def statTherm(plot) :
     Inputs:
         plot: Toggles the plots on (True) and off (False)
     """
-    
-    # List of relevant constants
-    some_constants = {
-        "AlphaConvection" : 50,  # W/m^2K
-        "thickness" : 1,  # meter
-        "ECu" : 139e9,  # Young's modulus (Pa)
-        "VCu" : 0.18,  # Poisson's ratio
-        "AlphaCu" : 17e-6,  # thermal expansion coefficient (1/K)
-        "RhoCu" : 8890,  # Density (kg/m^3)
-        "CCu" : 377,  # Specific heat (J/KgK)
-        "KCu" : 323,  # Thermal conductivity (W/mK)
-        "Tinfty": 293,  # K
-        "InsidePressure": 1e6,  # Pa
-    }
 
     # Creates the mesh for the thermal problem
     coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
 
     # Assembles the K-matrix
-    K = AssembleThermStiffness(coord, edof, dofs, element_markers, some_constants)
+    K = AssembleThermStiffness(coord, edof, dofs, element_markers)
 
     # Computes the boundary coditions and inserts them into the F-matrix
     # Also computes the change to K due to the convection boundary contition
-    F, bc, bc_value, KModifier = MakeThermBC(coord, edof, dofs, bdofs, some_constants)
+    F, bc, bc_value, KModifier = MakeThermBC(coord, edof, dofs, bdofs)
     
     # Update K with changes from convection BC
     K = K + KModifier  
@@ -146,41 +146,27 @@ def dynTherm(plot) :
     Inputs:
         plot: Toggles the plots on (True) and off (False)
 
-    Returns temperature distribution in the rocket nozzle after 1 hour
+    Returns the temperature distribution in the rocket nozzle after 1 hour
     """
-    
-    # List of relevant constants
-    some_constants = {
-        "AlphaConvection": 50,  # W/m^2K
-        "thickness": 1,  # meter
-        "ECu": 139e9,  # Young's modulus (Pa)
-        "VCu": 0.18,  # Poisson's ratio
-        "AlphaCu": 17e-6,  # thermal expansion coefficient (1/K)
-        "RhoCu": 8890,  # Density (kg/m^3)
-        "CCu": 377,  # Specific heat (J/KgK)
-        "KCu": 323,  # Thermal conductivity (W/mK)
-        "Tinfty": 293,  # K
-        "InsidePressure": 1e6,  # Pa
-    }
 
     # Creates the mesh for the thermal problem
     coord, edof, dofs, bdofs, element_markers = MakeThermMesh(NozzleGeom())
 
     # Assembles the K-matrix
-    K = AssembleThermStiffness(coord, edof, dofs, element_markers, some_constants)
+    K = AssembleThermStiffness(coord, edof, dofs, element_markers)
 
     # Computes the boundary coditions and inserts them into the F-matrix
     # Also computes the change to K due to the convection boundary contition
-    F, bc, bc_value, KModifier = MakeThermBC(coord, edof, dofs, bdofs, some_constants)
+    F, bc, bc_value, KModifier = MakeThermBC(coord, edof, dofs, bdofs)
     
     # Update K with changes from convection boundary contition
     K = K + KModifier  
 
     # Computes the capacity matrix 
-    C = MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants)
+    C = MakeCapacityMatrix(coord, dofs, edof, element_markers)
 
     # Initializes array with the temperatures in the nozzle at t=0
-    a0 = np.ones((len(dofs), 1)) * some_constants["Tinfty"]
+    a0 = np.ones((len(dofs), 1)) * Tinfty
 
     # Values for the time stepping method
     dt, tottime, alpha = 10, 3600, 1
@@ -246,20 +232,6 @@ def Mech(plot, temps) :
         plot: Toggles the plots on (True) and off (False)
         temps: Temperatures in the rocket nozzle after one hour
     """
-    
-    # List of relevant constants
-    some_constants = {
-        "AlphaConvection": 50,  # W/m^2K
-        "thickness": 1,  # meter
-        "ECu": 139e9,  # Young's modulus (Pa)
-        "VCu": 0.18,  # Poisson's ratio
-        "AlphaCu": 17e-6,  # thermal expansion coefficient (1/K)
-        "RhoCu": 8890,  # Density (kg/m^3)
-        "CCu": 377,  # Specific heat (J/KgK)
-        "KCu": 323,  # Thermal conductivity (W/mK)
-        "InsidePressure": 1e6,  # Pa
-        "Tinfty": 293,  # K
-    }
 
     # Generate the mesh for the mechanical problem with 2 degrees of freedom per node
     mesh = cfm.GmshMeshGenerator(NozzleGeom(), mesh_dir=mesh_dir)
@@ -312,12 +284,12 @@ def Mech(plot, temps) :
    
     #
     ptype = 2
-    ep = np.array([ptype, some_constants["thickness"]])
+    ep = np.array([ptype, thickness])
     n_dofs = np.size(dofs)
     ex, ey = cfc.coordxtr(edof, coord, dofs)
 
     # Calculates the D-matrices for the mechanical problem
-    DCu = calcD_matrix(some_constants["ECu"], some_constants["VCu"])
+    DCu = calcD_matrix(ECu, VCu)
     DTi = calcD_matrix(ETi, VTi)
 
     # Creates empty K and F-matrices
@@ -337,15 +309,15 @@ def Mech(plot, temps) :
         tAvg = (temps[int(dof[1] / 2 - 1)] + temps[int(dof[3] / 2 - 1)] + temps[int(dof[5] / 2 - 1)]) / 3
         
         # Calculates difference from starting temperature
-        deltaT = tAvg[0, 0] - some_constants["Tinfty"]
+        deltaT = tAvg[0, 0] - Tinfty
 
         # Computes contribution due to thermal expansion
         if element_markers[i] == MARKER_TiAlloy:
             epsilon_deltaT = AlphaTi * deltaT * np.array([[1], [1], [0]])
             es = calcD_matrix(ETi, VTi) @ epsilon_deltaT 
         else:
-            epsilon_deltaT =  some_constants["AlphaCu"] * deltaT * np.array([[1], [1], [0]])
-            es = calcD_matrix(some_constants["ECu"], some_constants["VCu"]) @ epsilon_deltaT 
+            epsilon_deltaT =  AlphaCu * deltaT * np.array([[1], [1], [0]])
+            es = calcD_matrix(ECu, VCu) @ epsilon_deltaT 
 
         # Computes element load vector
         Fe = cfc.plantf(ex[i], ey[i], ep, es.T)
@@ -379,7 +351,7 @@ def Mech(plot, temps) :
         normalVect = np.array([x_dir, y_dir])/np.linalg.norm((x_dir, y_dir))
         
         # Converts p_0 into a force (p_0 * area)
-        p_0_force = some_constants["InsidePressure"] * some_constants["thickness"] * L * normalVect
+        p_0_force = p_0 * thickness * L * normalVect
 
         # Insert force into load vector
         F[2 * (int(n1) - 1)] -= p_0_force[0]
@@ -401,20 +373,20 @@ def Mech(plot, temps) :
         temp = (temps[int(dof[1] / 2 - 1)] + temps[int(dof[3] / 2 - 1)] + temps[int(dof[5] / 2 - 1)]) / 3
         
          # Calculates difference from starting temperature
-        deltaT = temp[0, 0] - some_constants["Tinfty"]
+        deltaT = temp[0, 0] - Tinfty
 
         if element_markers[i] == MARKER_CuCr:
             es, _ = cfc.plants(ex[i], ey[i], ep, DCu, ed[i])
 
             # Computes contribution due to thermal expansion
-            epsilon_deltaT = some_constants["AlphaCu"] * deltaT * np.array([[1], [1], [0]])
-            D_epsilon_deltaT = calcD_matrix(some_constants["ECu"], some_constants["VCu"]) @ epsilon_deltaT
+            epsilon_deltaT = AlphaCu * deltaT * np.array([[1], [1], [0]])
+            D_epsilon_deltaT = calcD_matrix(ECu, VCu) @ epsilon_deltaT
 
             # Calculate stresses needed for sigma_eff
             sigma_x = es[0, 0] - D_epsilon_deltaT[0]
             sigma_y = es[0, 1] - D_epsilon_deltaT[1]
             tau_xy = es[0, 2] - D_epsilon_deltaT[2]
-            sigma_z = some_constants["VCu"]*(sigma_x + sigma_y) - some_constants["AlphaCu"] * some_constants["ECu"] * deltaT
+            sigma_z = VCu*(sigma_x + sigma_y) - AlphaCu * ECu * deltaT
         else:
             es, _ = cfc.plants(ex[i], ey[i], ep, DTi, ed[i])
 
@@ -615,23 +587,22 @@ def MakeThermMesh(geom) :
 
     return (coord, edof, dofs, bdofs, element_markers)
 
-def AssembleThermStiffness(coord, edof, dofs, element_markers, some_constants) :
+def AssembleThermStiffness(coord, edof, dofs, element_markers) :
     """
     Calculates and assembles the K-matrix for the thermal problem
 
     Inputs:
         coord, edof, dofs, element_markers: Mesh properties
-        some_constants: List of relevant constants
 
     Outputs:
         K: Global stiffness matrix
     """
-    ep = [some_constants["thickness"]] 
+    ep = [thickness] 
 
     n_dofs = np.size(dofs) # Number of nodes
     ex, ey = cfc.coordxtr(edof, coord, dofs) # Nodal coordinates
 
-    DCu = np.array([[some_constants["KCu"], 0.0], [0.0, some_constants["KCu"]]])  
+    DCu = np.array([[KCu, 0.0], [0.0, KCu]])  
     DTi = np.array([[KTi, 0.0], [0.0, KTi]])  
 
     # Initializes empty global stiffness matrix
@@ -649,14 +620,13 @@ def AssembleThermStiffness(coord, edof, dofs, element_markers, some_constants) :
 
     return K
 
-def MakeThermBC(coord, edof, dofs, bdofs, some_constants) :
+def MakeThermBC(coord, edof, dofs, bdofs) :
     """
     Calcualtes boundary conditions for the thermal problem 
     and calculates the modified global stiffness matrix due to convectiom
 
     Inputs:
         coord, edof, dofs, bdofs: Mesh properties
-        some_constants: List of relevant constants
 
     Outputs:
         F: Load vector
@@ -683,8 +653,8 @@ def MakeThermBC(coord, edof, dofs, bdofs, some_constants) :
             l = np.sqrt(dx*dx + dy*dy)
             
             # Insert values into load vector
-            F[e[0]-1] += l*some_constants["thickness"]*ChamberHeating/2
-            F[e[1]-1] += l*some_constants["thickness"]*ChamberHeating/2
+            F[e[0]-1] += l*thickness*ChamberHeating/2
+            F[e[1]-1] += l*thickness*ChamberHeating/2
 
     # Add cooling boundary condition to load vector
     if MARKER_ChamberOutside in bdofs.keys():
@@ -697,8 +667,8 @@ def MakeThermBC(coord, edof, dofs, bdofs, some_constants) :
             l = np.sqrt(dx*dx + dy*dy)
 
             # Insert values into load vector
-            F[e[0]-1] -= l*some_constants["thickness"]*ChamberCooling/2
-            F[e[1]-1] -= l*some_constants["thickness"]*ChamberCooling/2
+            F[e[0]-1] -= l*thickness*ChamberCooling/2
+            F[e[1]-1] -= l*thickness*ChamberCooling/2
 
     # Initializes the modification to the global stiffness matrix
     KModifier = np.zeros([len(F), len(F)])
@@ -714,24 +684,23 @@ def MakeThermBC(coord, edof, dofs, bdofs, some_constants) :
             l = np.sqrt(dx*dx + dy*dy)
             
             # Insert values into load vector
-            F[e[0]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2 
-            F[e[1]-1] += l*some_constants["thickness"]*some_constants["AlphaConvection"]*some_constants["Tinfty"]/2
+            F[e[0]-1] += l*thickness*AlphaConvection*Tinfty/2 
+            F[e[1]-1] += l*thickness*AlphaConvection*Tinfty/2
             
             # Insert values into modification matrix
-            KModifier[e[0]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /3
-            KModifier[e[1]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /3
-            KModifier[e[0]-1][e[1]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /6
-            KModifier[e[1]-1][e[0]-1] += l * some_constants["thickness"] * some_constants["AlphaConvection"] /6
+            KModifier[e[0]-1][e[0]-1] += l * thickness * AlphaConvection /3
+            KModifier[e[1]-1][e[1]-1] += l * thickness * AlphaConvection /3
+            KModifier[e[0]-1][e[1]-1] += l * thickness * AlphaConvection /6
+            KModifier[e[1]-1][e[0]-1] += l * thickness * AlphaConvection /6
 
     return F, bc, bc_value, KModifier
 
-def MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants) -> np.array :
+def MakeCapacityMatrix(coord, dofs, edof, element_markers) -> np.array :
     """ 
     Calculates the capacity matrix used in the numerical integration method
     
     Input:
     coord, dofs, edof, element_markers: Mesh properties
-    some_constants: List of relevant constants
 
     Output: 
         C: Global capacity matrix
@@ -753,10 +722,10 @@ def MakeCapacityMatrix(coord, dofs, edof, element_markers, some_constants) -> np
 
         # Computes the element capacity matrix
         if element_markers[i] == MARKER_CuCr :
-            const = some_constants["thickness"]*some_constants["CCu"]*some_constants["RhoCu"]
+            const = thickness*CCu*RhoCu
             Ce = plantml(xCord, yCord, const)
         else:
-            const = some_constants["thickness"]*CTi*RhoTi
+            const = thickness*CTi*RhoTi
             Ce = plantml(xCord, yCord, const)
         
         # Inserts the element capacity matrix into the global capacity matrix
