@@ -78,7 +78,7 @@ def statTherm(plot) :
     # Also computes the change to K due to the convection boundary contition
     F, bc, bc_value, KModifier = MakeThermBC(coord, edof, dofs, bdofs)
     
-    # Update K with changes from convection BC
+    # Update K with changes from convection boundary contition
     K = K + KModifier  
 
     # Solve the stationary thermal problem
@@ -100,6 +100,7 @@ def statTherm(plot) :
         if a[i] - TDiff > diff:
             diff = a[i] - TDiff
             diffcord = coord[i]
+    
     print("Stationär maxtemp:", max, " på plats ", maxcord, "Stationär mintemp:", min, " på plats ", mincord)
     print("Störst temperaturskillnad", diff, " på plats ", diffcord)
 
@@ -173,7 +174,7 @@ def dynTherm(plot) :
     smoothness = 0.5
     times = [100 * i * smoothness for i in range(int(tottime / (100 * smoothness)))]
 
-    # Carries out the time stepping method over the entire nozzle
+    # Carries out the time stepping method
     modhist, dofhist = cfc.step1(K, C, F, a0, bc, [dt, tottime, alpha], times, dofs=np.array([]))
 
     if plot:
@@ -282,7 +283,6 @@ def Mech(plot, temps) :
         plt.ylabel("y-coordinate [m]")
         plt.show()
    
-    #
     ptype = 2
     ep = np.array([ptype, thickness])
     n_dofs = np.size(dofs)
@@ -298,7 +298,7 @@ def Mech(plot, temps) :
 
     for i in range(len(edof)):
         # Computes element stiffness matrix 
-        if element_markers[i] == 1:
+        if element_markers[i] == MARKER_TiAlloy:
             Ke = cfc.plante(ex[i], ey[i], ep, DTi)
         else:
             Ke = cfc.plante(ex[i], ey[i], ep, DCu)
@@ -325,7 +325,7 @@ def Mech(plot, temps) :
         # Assembles the element matrices into the global matrices
         cfc.assem(edof[i], K, Ke, F, Fe)
 
-    # Applies Dirichlet boundary conditions 
+    # Apply Dirichlet boundary conditions 
     bc, bc_value = np.array([], 'i'), np.array([], 'f')
     bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_ChamberOutside, 0.0)
     bc, bc_value = cfu.applybc(bdofs, bc, bc_value, MARKER_QN_0, 0.0, 2)
@@ -339,6 +339,7 @@ def Mech(plot, temps) :
                        title="Displacement due to thermal expansion,\n with a magnification factor of 100")
     plt.xlabel("x-coordinate [m]")
     plt.ylabel("y-coordinate [m]")
+    plt.show()
     
     # Force from the pressure on the inside of the rocker nozzle
     for i, edge in enumerate(edges[MARKER_Inside]):
@@ -623,7 +624,7 @@ def AssembleThermStiffness(coord, edof, dofs, element_markers) :
 def MakeThermBC(coord, edof, dofs, bdofs) :
     """
     Calcualtes boundary conditions for the thermal problem 
-    and calculates the modified global stiffness matrix due to convectiom
+    and calculates the modification to the global stiffness matrix due to convectiom
 
     Inputs:
         coord, edof, dofs, bdofs: Mesh properties
