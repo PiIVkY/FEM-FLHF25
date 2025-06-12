@@ -567,10 +567,12 @@ def Mech(plot, temps) :
     print(f"Maximum von Mises stress: {np.max(von_mises_nodal_values) / 1e6} MPa")
 
     if plot :
-        # Plots the von Mises stress in the nodes
+        # Plots the nodal von Mises stress in the entire rocket nozzle
         cfv.figure(fig_size=(10, 5))
         cfv.draw_nodal_values_shaded(von_mises_nodal_values, coord, oldEdof, "von Mises stress distribution at t = 1 h")
         cfv.colorbar()
+        plt.xlabel("x-coordinate [m]")
+        plt.ylabel("y-coordinate [m]")
         cfv.show_and_wait()
 
 
